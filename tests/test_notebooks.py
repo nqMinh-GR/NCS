@@ -13,6 +13,7 @@ def test_notebooks_validate():
     assert "ROBOFLOW_API_KEY=" not in source
     assert "files.download" in source
     assert "DET_BATCH_SIZE" in source
+    assert "faster-coco-eval>=1.6.6" in source
     assert "OCR_BATCH_SIZE" in source
     assert "host_latency" in source
     assert "LATENCY_ITERATIONS" in source

@@ -120,8 +120,8 @@ PADDLE_CUDA = "cu126"  # None = wheel mặc định. Nếu index GPU lỗi, ô c
         md("""
 ## 3. Cài môi trường
 
-PyTorch dùng sẵn trên Colab, kèm RF-DETR. Paddle và Keras nằm ở hai venv riêng để Run all vẫn train được cả ba họ model trong một notebook.
-Một stack cài lỗi thì stack đó bị ghi `dependency_missing` và các stack khác vẫn chạy.
+PyTorch dùng sẵn trên Colab, kèm RF-DETR. Ô này cũng cài dependency của RT-DETRv4 và D-FINE, trong đó có `faster-coco-eval`. Thiếu package đó thì `train.py` chết ngay lúc import, trước khi GPU nhận model, nên không có đợt tràn VRAM.
+Không cài lại `torch` hay `torchvision` từ pip, để giữ bản CUDA của Colab. Paddle và Keras nằm ở hai venv riêng. Một stack cài lỗi thì stack đó bị ghi `dependency_missing` và các stack khác vẫn chạy.
 """),
         code("""
 import subprocess, sys
@@ -138,6 +138,7 @@ try:
     pip_install(sys.executable, [
         "PyYAML", "Pillow", "numpy", "roboflow",
         "rfdetr==1.11.2", "onnx==1.23.2",
+        "faster-coco-eval>=1.6.6", "tensorboard", "scipy", "calflops", "transformers", "loguru",
     ])
 except subprocess.CalledProcessError as exc:
     print("install_failed", "torch", exc.returncode)
@@ -311,9 +312,20 @@ try:
 except Exception as exc:
     print("train_failed", type(exc).__name__, exc)
     report = {"status": "failed", "train_executed": False, "edge_executed": False, "rows": []}
+def log_tail(reason, limit=40):
+    from pathlib import Path
+    path = Path(str(reason))
+    if path.suffix != ".log" or not path.is_file():
+        return
+    lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    print("---", path, "---")
+    print("\\n".join(lines[-limit:]))
+
 print(report["status"], "train_executed", report["train_executed"], "edge_executed", report["edge_executed"])
 for row in report["rows"]:
     print(row["model_id"], row["status"], row["batch"], row["reason"])
+    if row["status"] == "failed":
+        log_tail(row["reason"])
 print("--- host latency (not Jetson) ---")
 for row in report.get("host_latency") or []:
     print(row["model_id"], row["status"], row.get("backend"), "batch", row.get("batch"), "p50_ms", row.get("p50_ms"), "p95_ms", row.get("p95_ms"))
