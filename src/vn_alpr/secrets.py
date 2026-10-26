@@ -14,8 +14,14 @@ BEARER = re.compile(r"(?i)bearer\s+[A-Za-z0-9._\-]{8,}")
 
 def find_secrets(text: str) -> list[str]:
     hits = []
-    for pattern in (SECRET_LINE, PRIVATE_KEY, BEARER):
-        hits.extend(match.group(0) for match in pattern.finditer(text))
+    for match in SECRET_LINE.finditer(text):
+        snippet = match.group(0)
+        # GitHub Actions writes "token: ${{ secrets.NAME }}". That is a placeholder, not a credential.
+        if "${{" in snippet or "secrets." in snippet.lower():
+            continue
+        hits.append(snippet)
+    hits.extend(match.group(0) for match in PRIVATE_KEY.finditer(text))
+    hits.extend(match.group(0) for match in BEARER.finditer(text))
     return hits
 
 

@@ -258,7 +258,16 @@ def test_zip_rejects_secrets_and_skips_env(tmp_path: Path):
     with pytest.raises(RuntimeError):
         build_results_zip(secret, tmp_path / "no.zip")
     assert find_secrets("token: abcdefgh")
+    assert not find_secrets("github-token: ${{ secrets.ISSUE }}")
     assert "supersecret" not in redact("api_key=supersecret")
+    upstream = run / "dfine_n" / "upstream" / ".github" / "workflows"
+    upstream.mkdir(parents=True)
+    (upstream / "is.yml").write_text("github-token: ${{ secrets.ISSUE }}\n", encoding="utf-8")
+    archive = build_results_zip(run, tmp_path / "with_upstream.zip")
+    with zipfile.ZipFile(archive["zip"]) as zf:
+        names = zf.namelist()
+    assert "report.md" in names
+    assert all("upstream" not in name and ".github" not in name for name in names)
 
 
 def test_zip_slip_and_html(tmp_path: Path):

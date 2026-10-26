@@ -8,7 +8,18 @@ from pathlib import Path
 from vn_alpr.dedup import sha256_file
 from vn_alpr.secrets import find_secrets, path_is_sensitive
 
-SKIP_DIR_NAMES = {"raw", "cache", "credentials", "teacher", ".git", "__pycache__", "venvs", ".venv"}
+SKIP_DIR_NAMES = {
+    "raw",
+    "cache",
+    "credentials",
+    "teacher",
+    ".git",
+    ".github",
+    "__pycache__",
+    "venvs",
+    ".venv",
+    "upstream",
+}
 SKIP_SUFFIXES = {".pth", ".pdparams", ".engine"}
 
 
