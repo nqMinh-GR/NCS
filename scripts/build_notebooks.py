@@ -190,27 +190,51 @@ print(PYTHON_BINS)
         md("""
 ## 4. Credential
 
-Đặt secret `ROBOFLOW_API_KEY` trong Colab nếu muốn tải bộ Roboflow. Ô này không in key.
-Không có key thì notebook vẫn tải bộ Hugging Face public và chạy tiếp.
+Train không tải Roboflow khi ô này in `roboflow_key_set False`. Ảnh lỗi là secret đang tên `ROBOFLC`, trong khi code tìm `ROBOFLOW_API_KEY`, nên key không được đọc và bước train không có bộ biển Việt Nam.
+
+Sửa tên secret thành đúng `ROBOFLOW_API_KEY`, bật công tắc Notebook access, rồi chạy lại ô này và các ô dữ liệu/train bên dưới. Ô này không in giá trị key.
+Không có key thì notebook vẫn tải bộ Hugging Face public và vẫn gọi train trên bộ đó.
 """),
         code("""
 import os
 
-def load_secret(name):
+# Tên trong panel Secrets phải khớp một dòng dưới đây. Ảnh đang để ROBOFLC.
+ROBOFLOW_SECRET_NAMES = ("ROBOFLOW_API_KEY", "ROBOFLOW_KEY", "ROBOFLOW", "ROBOFLC")
+
+def read_secret(name):
     if os.environ.get(name):
-        return True
+        return os.environ.get(name)
     try:
         from google.colab import userdata
         value = userdata.get(name)
-    except Exception:
-        return False
-    if not value:
-        return False
-    os.environ[name] = value
-    return True
+    except Exception as exc:
+        return exc
+    return value or None
 
-print("roboflow_key_set", load_secret("ROBOFLOW_API_KEY"))
-print("kaggle_set", load_secret("KAGGLE_USERNAME") and load_secret("KAGGLE_KEY"))
+found_name = None
+last_error = None
+for secret_name in ROBOFLOW_SECRET_NAMES:
+    loaded = read_secret(secret_name)
+    if isinstance(loaded, str) and loaded.strip():
+        os.environ["ROBOFLOW_API_KEY"] = loaded.strip()
+        found_name = secret_name
+        break
+    if isinstance(loaded, Exception):
+        last_error = type(loaded).__name__
+
+print("roboflow_key_set", bool(found_name), "secret_name", found_name or "missing")
+if not found_name:
+    print("Không thấy key. Đặt tên secret là ROBOFLOW_API_KEY, bật Notebook access, rồi chạy lại ô này.")
+    if last_error:
+        print("colab_error", last_error)
+kaggle_user = read_secret("KAGGLE_USERNAME")
+kaggle_key = read_secret("KAGGLE_KEY")
+if isinstance(kaggle_user, str) and isinstance(kaggle_key, str):
+    os.environ["KAGGLE_USERNAME"] = kaggle_user
+    os.environ["KAGGLE_KEY"] = kaggle_key
+    print("kaggle_set", True)
+else:
+    print("kaggle_set", False)
 """),
         md("## 5. Áp tham số và xem máy"),
         code("""
