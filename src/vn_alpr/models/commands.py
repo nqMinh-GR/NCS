@@ -49,12 +49,12 @@ if __name__ == "__main__":
 '''
 
 
-def student_yaml(official_text: str, epochs: int) -> str:
+def student_yaml(official_text: str, epochs: int, epoch_key: str = "epoches") -> str:
     text = strip_yaml_key_block(official_text, "teacher_model")
     text = zero_distill_loss(text)
     if "teacher_model:" in text:
         raise RuntimeError("teacher_model block was not removed")
-    text += f"\n{EPOCH_KEY}: {epochs}\n"
+    text += f"\n{epoch_key}: {epochs}\n"
     text += "remap_mscoco_category: False\nnum_classes: 1\n"
     return text
 
@@ -90,8 +90,20 @@ def _yaml_updates(pairs: list[tuple[str, Any]]) -> list[str]:
     return updates
 
 
-# RT-DETRv4 and D-FINE spell this field "epoches" in their YAML.
-EPOCH_KEY = "epoches"
+def epoch_key_for(model: dict[str, Any]) -> str:
+    """RT-DETRv4 reads epoches. D-FINE reads epochs."""
+    if model.get("family") == "dfine":
+        return "epochs"
+    return "epoches"
+
+
+def student_config_path(run_dir: Path, model: dict[str, Any]) -> Path:
+    """Write the fine-tune file beside the upstream YAML.
+
+    load_config joins __include__ paths to the config file's directory.
+    A copy in the run root makes ../dfine and ../dataset point outside the clone.
+    """
+    return run_dir / "upstream" / Path(model["config"]).with_name("vn_alpr_finetune.yml")
 
 
 def rtdetr_family_commands(
@@ -107,6 +119,8 @@ def rtdetr_family_commands(
     batch = int(_value(hparams, "det_batch_size", 4))
     workers = int(_value(hparams, "num_workers", 2))
     learning_rate = _value(hparams, "learning_rate", None)
+    epoch_key = epoch_key_for(model)
+    config_path = student_config_path(run_dir, model)
     updates = _yaml_updates(
         [
             ("train_dataloader.total_batch_size", batch),
@@ -118,7 +132,7 @@ def rtdetr_family_commands(
             ("val_dataloader.dataset.img_folder", (hparams or {}).get("val_images")),
             ("val_dataloader.dataset.ann_file", (hparams or {}).get("val_ann")),
             ("optimizer.lr", learning_rate),
-            (EPOCH_KEY, epochs),
+            (epoch_key, epochs),
             ("num_classes", 1),
             ("remap_mscoco_category", False),
         ]
@@ -127,7 +141,7 @@ def rtdetr_family_commands(
         "python",
         "train.py",
         "-c",
-        str(run_dir / "finetune.yml"),
+        str(config_path),
         "--use-amp",
         "--seed",
         str(seed),
@@ -141,7 +155,7 @@ def rtdetr_family_commands(
         "tools/deployment/export_onnx.py",
         "--check",
         "-c",
-        str(run_dir / "finetune.yml"),
+        str(config_path),
         "-r",
         str(run_dir / "best.pth"),
     ]

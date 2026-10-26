@@ -8,7 +8,7 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
-from vn_alpr.models.commands import commands_for, student_yaml
+from vn_alpr.models.commands import commands_for, epoch_key_for, student_config_path, student_yaml
 
 
 def find_layout(run_dir: Path) -> dict[str, Any] | None:
@@ -128,8 +128,13 @@ def attempt(
         if cloned["status"] != "ok":
             return cloned
         if model["family"] in {"rtdetrv4", "dfine", "deim"}:
-            text = student_yaml((repo / model["config"]).read_text(encoding="utf-8"), epochs)
-            (work / "finetune.yml").write_text(text, encoding="utf-8")
+            text = student_yaml(
+                (repo / model["config"]).read_text(encoding="utf-8"),
+                epochs,
+                epoch_key=epoch_key_for(model),
+            )
+            dest = student_config_path(work, model)
+            dest.write_text(text, encoding="utf-8")
             failed = _fetch_checkpoint(model, work / "checkpoint.pth")
             if failed:
                 return failed

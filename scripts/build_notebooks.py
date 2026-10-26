@@ -137,7 +137,7 @@ def pip_install(python, packages, index=None):
 try:
     pip_install(sys.executable, [
         "PyYAML", "Pillow", "numpy", "roboflow",
-        "rfdetr==1.11.2", "onnx==1.23.2",
+        "rfdetr[train]==1.11.2", "onnx==1.23.2",
         "faster-coco-eval>=1.6.6", "tensorboard", "scipy", "calflops", "transformers", "loguru",
     ])
 except subprocess.CalledProcessError as exc:

@@ -19,7 +19,7 @@ from vn_alpr.data.synthetic import make_synthetic_detection
 from vn_alpr.evaluation import evaluate_chain, evaluate_detection, evaluate_ocr
 from vn_alpr.geometry import letterbox, letterbox_xywh_to_original, xywh_to_letterbox
 from vn_alpr.models import by_id, load_models, selection_reason, strip_yaml_key_block
-from vn_alpr.models.commands import commands_for, rfdetr_script, student_yaml
+from vn_alpr.models.commands import commands_for, rfdetr_script, student_config_path, student_yaml
 from vn_alpr.packaging import build_results_zip
 from vn_alpr.quantization.precision import quality_gate, summarize_precision
 from vn_alpr.secrets import find_secrets, redact
@@ -150,6 +150,18 @@ loss_distill: 5
     assert "dinov3" not in cleaned
     assert "loss_distill: 0" in cleaned
     assert "epoches: 3" in cleaned
+    assert "epochs: 4" in student_yaml(text, 4, epoch_key="epochs")
+
+    include_root = Path("/tmp/vn_alpr_include")
+    work = include_root / "rtdetrv4_s"
+    included = work / "upstream" / "configs" / "dfine" / "dfine_hgnetv2_s_coco.yml"
+    included.parent.mkdir(parents=True, exist_ok=True)
+    included.write_text("num_classes: 80\n", encoding="utf-8")
+    model = {"family": "rtdetrv4", "config": "configs/rtv4/rtv4_hgnetv2_s_coco.yml"}
+    dest = student_config_path(work, model)
+    resolved = (dest.parent / "../dfine/dfine_hgnetv2_s_coco.yml").resolve()
+    assert resolved == included.resolve()
+    assert not (work / "../dfine/dfine_hgnetv2_s_coco.yml").resolve().exists()
     assert "teacher" not in strip_yaml_key_block(text, "teacher_model")
 
     root = Path("/tmp/vn_alpr_cmd")
@@ -161,6 +173,16 @@ loss_distill: 5
         rfdetr_script({"python_class": "RFDETRXLarge"})
     dfine = commands_for(models["dfine_n"], root / "df", 1)
     assert "obj365" not in " ".join(dfine["train_argv"])
+    assert "epochs=1" in dfine["train_argv"]
+    assert "epoches=1" not in dfine["train_argv"]
+    assert dfine["train_argv"][dfine["train_argv"].index("-c") + 1].endswith(
+        "upstream/configs/dfine/vn_alpr_finetune.yml"
+    )
+    rtdetr = commands_for(models["rtdetrv4_s"], root / "rt", 2)
+    assert "epoches=2" in rtdetr["train_argv"]
+    assert rtdetr["train_argv"][rtdetr["train_argv"].index("-c") + 1].endswith(
+        "upstream/configs/rtv4/vn_alpr_finetune.yml"
+    )
     assert models["dfine_n"]["checkpoint_url"].endswith("dfine_n_coco.pth")
     paddle = commands_for(models["ppocrv6_tiny"], root / "pp", 1)
     assert "PP-OCRv6_tiny_rec.yml" in " ".join(paddle["train_argv"])
