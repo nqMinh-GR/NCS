@@ -43,7 +43,7 @@ def write_table(path: Path, rows: list[dict[str, Any]]) -> None:
         writer.writeheader()
         for row in rows:
             full = {key: row.get(key) for key in COLUMNS}
-            if full["status"] in {"pending_on_device", "dependency_missing", "failed", "skipped", "not_int8"}:
+            if full["status"] in {"pending_on_device", "dependency_missing", "failed", "skipped", "not_int8", "no_artifact", "oom"}:
                 for key in ("p50_ms", "p95_ms", "p99_ms", "throughput", "power_w", "temperature_c"):
                     if row.get("role") != "EDGE_TARGET" or full["status"] == "pending_on_device":
                         if key in ("p50_ms", "p95_ms", "p99_ms", "throughput", "power_w", "temperature_c"):
@@ -75,11 +75,32 @@ def recommend(rows: list[dict[str, Any]]) -> str:
     return "\n".join(lines) + "\n"
 
 
-def write_summary(path: Path, rows: list[dict[str, Any]]) -> None:
-    path.write_text(recommend(rows), encoding="utf-8")
+def host_latency_note(rows: list[dict[str, Any]]) -> str:
+    measured = [row for row in rows if row.get("status") == "measured" and row.get("p50_ms") is not None]
+    lines = ["", "## Latency trên máy train", ""]
+    if not measured:
+        lines.append("Chưa có file ONNX để đo trên máy train. Latency để trống, không ghi 0.")
+        lines.append("Latency Jetson vẫn là pending_on_device.")
+        return "\n".join(lines) + "\n"
+    lines.append("Số dưới đây đo trên TRAIN_HOST. Không dùng các số này làm latency Jetson.")
+    for row in sorted(measured, key=lambda item: (str(item.get("model_id")), int(item.get("batch") or 0))):
+        lines.append(
+            f"- `{row['model_id']}` batch {row['batch']} {row.get('backend')} trên {row.get('hardware_fingerprint')}: "
+            f"p50 {float(row['p50_ms']):.2f} ms, p95 {float(row['p95_ms']):.2f} ms, "
+            f"throughput {float(row['throughput']):.2f} ảnh/s."
+        )
+    return "\n".join(lines) + "\n"
+
+
+def write_summary(path: Path, rows: list[dict[str, Any]], host_rows: list[dict[str, Any]] | None = None) -> None:
+    text = recommend(rows)
+    if host_rows is not None:
+        text = text.rstrip() + "\n" + host_latency_note(host_rows)
+    path.write_text(text, encoding="utf-8")
+    html_rows = list(rows) + list(host_rows or [])
     html = ["<html><body><h1>VN ALPR summary</h1><table border='1'>"]
     html.append("<tr>" + "".join(f"<th>{key}</th>" for key in ("model_id", "status", "accuracy", "p50_ms")) + "</tr>")
-    for row in rows:
+    for row in html_rows:
         html.append(
             "<tr>"
             + "".join(f"<td>{row.get(key)}</td>" for key in ("model_id", "status", "accuracy", "p50_ms"))

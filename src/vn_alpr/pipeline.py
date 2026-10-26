@@ -8,6 +8,7 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+from vn_alpr.benchmark.host import measure_host_latency
 from vn_alpr.config import apply_profile, apply_train_overrides, load_project, repo_root, train_hparams
 from vn_alpr.data.prepare import prepare_locked_split
 from vn_alpr.data.synthetic import make_synthetic_detection
@@ -129,7 +130,9 @@ def run_profile(
             }
         )
     write_table(run_dir / "jetson_benchmark.csv", edge_rows)
-    write_summary(run_dir / "recommendation.md", rows)
+    host_rows = measure_host_latency(run_dir, cfg, hardware)
+    write_table(run_dir / "host_latency.csv", host_rows)
+    write_summary(run_dir / "recommendation.md", rows, host_rows)
     qat = {model["model_id"]: qat_status(model["family"]) for model in active_models(cfg, "detector")}
     (run_dir / "qat_support.json").write_text(json.dumps(qat, indent=2), encoding="utf-8")
     report = {
@@ -140,6 +143,7 @@ def run_profile(
         "benchmark_on_target": hardware["benchmark_on_target"],
         "train_executed": any(row["status"] == "ok" for row in rows),
         "edge_executed": False,
+        "host_latency": host_rows,
         "self_test": self_test,
         "rows": rows,
         "run_dir": str(run_dir),

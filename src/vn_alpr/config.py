@@ -126,6 +126,15 @@ def apply_train_overrides(cfg: dict[str, Any], overrides: dict[str, Any] | None)
         out["seed"] = int(overrides["seed"])
     if overrides.get("python_bins"):
         out["python_bins"] = {str(key): str(value) for key, value in overrides["python_bins"].items()}
+    bench_map = {
+        "latency_warmup": "warmup_iterations",
+        "latency_iterations": "min_timed_iterations",
+        "latency_seconds": "min_timed_seconds",
+        "latency_repeats": "repeats",
+    }
+    for source, dest in bench_map.items():
+        if source in overrides and overrides[source] is not None:
+            out["benchmark"][dest] = overrides[source]
     _validate_train_numbers(out)
     return out
 
@@ -150,6 +159,18 @@ def _validate_train_numbers(cfg: dict[str, Any]) -> None:
         raise ConfigError("max_images must be null or an integer >= 1")
     if int(training.get("det_input_size", 640)) % 32 != 0:
         raise ConfigError("det_input_size must be a multiple of 32")
+    bench = cfg.get("benchmark") or {}
+    for key, minimum in (
+        ("warmup_iterations", 0),
+        ("min_timed_iterations", 1),
+        ("min_timed_seconds", 0),
+        ("repeats", 1),
+    ):
+        value = bench.get(key)
+        if value is None:
+            continue
+        if isinstance(value, bool) or not isinstance(value, int) or value < minimum:
+            raise ConfigError(f"{key} must be an integer >= {minimum}")
 
 
 def apply_profile(cfg: dict[str, Any], profile: str | None = None) -> dict[str, Any]:

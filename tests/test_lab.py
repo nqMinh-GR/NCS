@@ -338,3 +338,82 @@ def test_coco_tree_materializes_rfdetr_layout(tmp_path: Path):
         linked.extend(Path(image_dirs[split]).iterdir())
     assert any(path.is_symlink() for path in linked)
     assert (tmp_path / "canonical" / "instances_train.json").exists()
+
+
+def test_host_latency_timer_and_missing_onnx(tmp_path: Path):
+    from vn_alpr.benchmark.host import concrete_shape, measure_host_latency, time_calls
+    from vn_alpr.reporting import host_latency_note, write_table
+
+    calls = {"n": 0}
+
+    def fn():
+        calls["n"] += 1
+
+    samples = time_calls(fn, warmup=2, iterations=4, min_seconds=0)
+    assert calls["n"] == 6
+    assert len(samples) == 4
+    assert concrete_shape(["N", 3, "H", "W"], 4) == [4, 3, 640, 640]
+    rows = measure_host_latency(tmp_path, load_project(), {"machine": "x86_64", "nvidia_smi": None, "nvpmodel": None})
+    assert rows[0]["status"] == "no_artifact"
+    assert rows[0]["p50_ms"] is None
+    assert rows[0]["role"] == "TRAIN_HOST"
+    assert rows[0]["benchmark_on_target"] is False
+    note = host_latency_note(rows)
+    assert "0.00 ms" not in note
+    tuned = apply_train_overrides(load_project(), {"latency_iterations": 20, "latency_seconds": 5, "latency_repeats": 1})
+    assert tuned["benchmark"]["min_timed_iterations"] == 20
+    assert tuned["benchmark"]["min_timed_seconds"] == 5
+    write_table(
+        tmp_path / "host_latency.csv",
+        [
+            {
+                "model_id": "m",
+                "status": "measured",
+                "role": "TRAIN_HOST",
+                "backend": "CPUExecutionProvider",
+                "batch": 1,
+                "p50_ms": 3.25,
+                "p95_ms": 4.0,
+                "p99_ms": 5.0,
+                "throughput": 300.0,
+                "hardware_fingerprint": "cpu",
+            },
+            {"model_id": "none", "status": "no_artifact", "role": "TRAIN_HOST", "p50_ms": 0, "batch": 1},
+        ],
+    )
+    csv_text = (tmp_path / "host_latency.csv").read_text(encoding="utf-8")
+    assert "3.25" in csv_text
+    assert "no_artifact" in csv_text
+    no_artifact_line = [line for line in csv_text.splitlines() if "no_artifact" in line][0]
+    assert ",0," not in no_artifact_line
+
+
+def test_onnx_latency_uses_real_samples(tmp_path: Path):
+    onnx = pytest.importorskip("onnx")
+    pytest.importorskip("onnxruntime")
+    from onnx import TensorProto, helper
+
+    from vn_alpr.benchmark.host import measure_host_latency
+
+    value = helper.make_tensor_value_info("x", TensorProto.FLOAT, ["N", 3, 8, 8])
+    graph = helper.make_graph(
+        [helper.make_node("Identity", ["x"], ["y"])],
+        "g",
+        [value],
+        [helper.make_tensor_value_info("y", TensorProto.FLOAT, ["N", 3, 8, 8])],
+    )
+    model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)], ir_version=10)
+    work = tmp_path / "toy_det"
+    work.mkdir()
+    onnx.save(model, work / "toy.onnx")
+    cfg = apply_train_overrides(
+        load_project(),
+        {"latency_warmup": 1, "latency_iterations": 4, "latency_seconds": 0, "latency_repeats": 1},
+    )
+    cfg["benchmark"]["extra_batches_if_fit"] = []
+    rows = measure_host_latency(tmp_path, cfg, {"machine": "x86_64", "nvidia_smi": None, "nvpmodel": None})
+    assert rows[0]["status"] == "measured"
+    assert rows[0]["p50_ms"] > 0
+    assert rows[0]["benchmark_on_target"] is False
+    assert rows[0]["backend"] in {"CPUExecutionProvider", "CUDAExecutionProvider"}
+    assert rows[0]["n"] == 4

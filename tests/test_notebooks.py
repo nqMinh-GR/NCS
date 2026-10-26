@@ -14,6 +14,8 @@ def test_notebooks_validate():
     assert "files.download" in source
     assert "DET_BATCH_SIZE" in source
     assert "OCR_BATCH_SIZE" in source
+    assert "host_latency" in source
+    assert "LATENCY_ITERATIONS" in source
     assert "START = False" not in source
     assert "https://github.com/nqMinh-GR/NCS.git" in source
     assert not (root / "01_train_export_benchmark.ipynb").exists()

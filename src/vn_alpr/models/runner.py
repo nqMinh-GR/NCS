@@ -167,4 +167,9 @@ def attempt(
     if not argv:
         return {"status": "failed", "reason": "no train command"}
     cwd = work / "upstream" if model["family"] in clone_families else work
-    return launch_upstream(argv, cwd, work / "train.log")
+    launched = launch_upstream(argv, cwd, work / "train.log")
+    if launched["status"] == "ok" and spec.get("export_argv"):
+        exported = launch_upstream(spec["export_argv"], cwd, work / "export.log")
+        launched["export_status"] = exported["status"]
+        launched["export_log"] = exported.get("log")
+    return launched

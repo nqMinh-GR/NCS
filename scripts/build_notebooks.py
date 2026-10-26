@@ -52,8 +52,8 @@ Mở notebook này từ GitHub rồi bấm **Runtime → Run all**. Không có �
 
 Repo: `{REPO}`
 
-Việc notebook làm trên Colab: clone code, cài stack, tải dữ liệu public, fine-tune detector rồi OCR, xuất báo cáo, zip và tải về.
-Latency Jetson không được đo trên Colab. Ô edge ghi `pending_on_device`.
+Việc notebook làm trên Colab: clone code, cài stack, tải dữ liệu public, fine-tune, đo latency ONNX trên GPU Colab, zip và tải về.
+Latency Jetson không lấy từ Colab. `host_latency.csv` là latency máy train. Ô edge vẫn ghi `pending_on_device`.
 
 Trước khi bấm Run all, sửa ô **tham số data / train** nếu muốn đổi batch size, epoch, learning rate, số worker hoặc số ảnh.
 """),
@@ -94,6 +94,7 @@ Sửa các biến này rồi Run all. Chúng được ghi vào lệnh train, kh�
 - `DET_INPUT_SIZE`: chỉ đổi độ phân giải RF-DETR khi `FORCE_DET_INPUT = True`. RT-DETRv4 và D-FINE vẫn resize 640 trong config upstream. RF-DETR mặc định dùng đúng native (Nano 384, Small 512, Medium 576).
 - `MAX_IMAGES`: `None` dùng hết ảnh sau khi lọc. Đặt số nguyên để cắt tập cho lần chạy ngắn hơn.
 - `PROFILE`: `screen` là shortlist. `full` thêm biến thể. `smoke` vẫn không lấy ảnh synthetic làm điểm benchmark.
+- `LATENCY_WARMUP`, `LATENCY_ITERATIONS`, `LATENCY_SECONDS`, `LATENCY_REPEATS`: `None` dùng mức trong `configs/project.yaml` (screen: 50 vòng warmup, 500 vòng đo, ít nhất 30 giây, lặp 3 lần). Hạ các số này nếu Colab sắp hết giờ. Batch đo latency là 1, rồi 4 và 8 nếu graph ONNX cho phép.
 """),
         code("""
 PROFILE = "screen"  # smoke | screen | full
@@ -109,6 +110,11 @@ LEARNING_RATE = None
 DET_INPUT_SIZE = 640
 FORCE_DET_INPUT = False
 MAX_IMAGES = None
+
+LATENCY_WARMUP = None
+LATENCY_ITERATIONS = None
+LATENCY_SECONDS = None
+LATENCY_REPEATS = None
 
 PADDLE_CUDA = "cu126"  # None = wheel mặc định. Nếu index GPU lỗi, ô cài đặt dùng wheel CPU.
 """),
@@ -132,10 +138,30 @@ def pip_install(python, packages, index=None):
 try:
     pip_install(sys.executable, [
         "PyYAML", "Pillow", "numpy", "roboflow",
-        "rfdetr==1.11.2", "onnx==1.23.2", "onnxruntime==1.31.0",
+        "rfdetr==1.11.2", "onnx==1.23.2",
     ])
 except subprocess.CalledProcessError as exc:
     print("install_failed", "torch", exc.returncode)
+
+ort_package = "onnxruntime==1.31.0"
+try:
+    import torch
+    if torch.cuda.is_available():
+        ort_package = "onnxruntime-gpu==1.31.0"
+except Exception:
+    pass
+try:
+    pip_install(sys.executable, [ort_package])
+    print("onnxruntime", ort_package)
+except subprocess.CalledProcessError:
+    if ort_package != "onnxruntime==1.31.0":
+        print("onnxruntime-gpu failed; using CPU onnxruntime")
+        try:
+            pip_install(sys.executable, ["onnxruntime==1.31.0"])
+        except subprocess.CalledProcessError as exc:
+            print("install_failed", "onnxruntime", exc.returncode)
+    else:
+        print("install_failed", "onnxruntime")
 
 venv_root = Path("/content/vn_alpr_venvs") if Path("/content").exists() else ROOT / "venvs"
 venv_root.mkdir(parents=True, exist_ok=True)
@@ -205,6 +231,10 @@ overrides = {
     "det_input_size": DET_INPUT_SIZE,
     "force_det_input": FORCE_DET_INPUT,
     "max_images": MAX_IMAGES,
+    "latency_warmup": LATENCY_WARMUP,
+    "latency_iterations": LATENCY_ITERATIONS,
+    "latency_seconds": LATENCY_SECONDS,
+    "latency_repeats": LATENCY_REPEATS,
     "use_gpu": bool(torch.cuda.is_available()),
     "python_bins": PYTHON_BINS,
 }
@@ -261,11 +291,32 @@ except Exception as exc:
 print(report["status"], "train_executed", report["train_executed"], "edge_executed", report["edge_executed"])
 for row in report["rows"]:
     print(row["model_id"], row["status"], row["batch"], row["reason"])
+print("--- host latency (not Jetson) ---")
+for row in report.get("host_latency") or []:
+    print(row["model_id"], row["status"], row.get("backend"), "batch", row.get("batch"), "p50_ms", row.get("p50_ms"), "p95_ms", row.get("p95_ms"))
 """),
         md("""
-## 8. Báo cáo
+## 8. Latency máy train
 
-Khuyến nghị chỉ dùng dòng đã đo. Chưa có prediction thì không có accuracy.
+Ô train đã đo mọi file ONNX trong thư mục chạy: warmup, rồi lặp đến khi đủ số vòng và số giây. Có CUDA thì dùng `CUDAExecutionProvider`, không có thì CPU, và backend ghi đúng provider đã chạy.
+Batch 1 là số chính. Batch 4 và 8 chỉ chạy khi dimension batch của ONNX không bị cố định. Hết bộ nhớ thì dòng đó là `oom`, không ghi latency 0.
+`host_latency.csv` là latency Colab. Không copy các số này sang bảng Jetson.
+"""),
+        code("""
+import json
+from pathlib import Path
+table = Path(cfg["run_root"]) / "host_latency.csv"
+print(table.read_text(encoding="utf-8") if table.exists() else "chưa có host_latency.csv")
+payload = Path(cfg["run_root"]) / "host_latency.json"
+if payload.exists():
+    rows = json.loads(payload.read_text(encoding="utf-8"))
+    for row in rows:
+        print(row.get("model_id"), row.get("status"), row.get("backend"), row.get("batch"), row.get("p50_ms"), row.get("p95_ms"), row.get("throughput"))
+"""),
+        md("""
+## 9. Báo cáo
+
+Khuyến nghị chỉ dùng dòng accuracy đã đo. Latency máy train nằm ở mục trên và trong `recommendation.md`.
 """),
         code("""
 import subprocess, sys
@@ -275,9 +326,9 @@ rec = ROOT / cfg["run_root"] / "recommendation.md"
 print(rec.read_text(encoding="utf-8") if rec.exists() else "chưa có recommendation")
 """),
         md("""
-## 9. Edge
+## 10. Edge
 
-Colab không phải Jetson. Ô này không build TensorRT và không ghi latency 0.
+Colab không phải Jetson. Ô này không build TensorRT và không ghi latency 0. Latency đã đo ở trên là của GPU Colab.
 """),
         code("""
 import json
@@ -298,7 +349,7 @@ payload = {
 print(payload["status"], payload["reason"])
 """),
         md("""
-## 10. Zip và tải về
+## 11. Zip và tải về
 
 Zip bỏ raw data, checkpoint nặng, teacher và secret. File nhỏ hơn ngưỡng được tải qua trình duyệt.
 """),

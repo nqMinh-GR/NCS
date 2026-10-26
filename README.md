@@ -22,7 +22,9 @@ Chọn GPU runtime rồi bấm **Runtime → Run all**. Notebook tự clone `htt
 
 `ROBOFLOW_API_KEY` để trong secret của Colab. Notebook không in key. Không có key thì bộ Hugging Face public vẫn được tải. Bộ đó là dữ liệu nhiều nước; nếu không có bộ biển Việt Nam đi kèm, manifest ghi `mixed_auxiliary_not_vn_leaderboard`.
 
-Latency Jetson trong cùng notebook là `pending_on_device`. Colab không build engine TensorRT.
+Latency ONNX đo trên GPU Colab (hoặc CPU nếu không có CUDA) ghi vào `runs/vn_alpr/host_latency.csv` với p50, p95, p99. Đó không phải latency Jetson. Bảng Jetson trong cùng notebook vẫn là `pending_on_device`. Colab không build engine TensorRT.
+
+`LATENCY_WARMUP`, `LATENCY_ITERATIONS`, `LATENCY_SECONDS` và `LATENCY_REPEATS` để `None` thì dùng mức trong `configs/project.yaml`.
 
 ## Lệnh local
 
