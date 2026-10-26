@@ -68,13 +68,12 @@ from pathlib import Path
 
 REPO = "{REPO}"
 ROOT = Path("/content/NCS")
-if (Path.cwd() / "configs" / "project.yaml").exists():
+if (ROOT / ".git").exists():
+    subprocess.check_call(["git", "-C", str(ROOT), "pull", "--ff-only"])
+elif (Path.cwd() / "configs" / "project.yaml").exists():
     ROOT = Path.cwd()
-elif not (ROOT / "configs" / "project.yaml").exists():
-    if ROOT.exists():
-        subprocess.check_call(["git", "-C", str(ROOT), "pull", "--ff-only"])
-    else:
-        subprocess.check_call(["git", "clone", "--depth", "1", REPO, str(ROOT)])
+else:
+    subprocess.check_call(["git", "clone", "--depth", "1", REPO, str(ROOT)])
 os.chdir(ROOT)
 if str(ROOT / "src") not in sys.path:
     sys.path.insert(0, str(ROOT / "src"))
