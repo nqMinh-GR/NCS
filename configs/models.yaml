@@ -1,0 +1,608 @@
+# Model registry. checked_at 2026-10-26.
+# reference_* fields are upstream tables. They are not this project's leaderboard.
+checked_at: "2026-10-26"
+plate_class: license_plate
+
+# Names that may be mapped to the primary plate class. Numeric ids and
+# artifact names are never mapped by default.
+plate_name_aliases:
+  - license_plate
+  - licence_plate
+  - license
+  - plate
+  - bien_so
+  - bien_so_xe
+  - number_plate
+  - licenseplate
+
+artifact_class_names: ["images", "labels", "image", "label"]
+
+models:
+  - model_id: rtdetrv4_s
+    family: rtdetrv4
+    variant: S
+    task: detection
+    publication: "ECCV 2026"
+    official_repo: https://github.com/RT-DETRs/RT-DETRv4
+    git_commit: 55fefaaed7efe2a5f72d0a18fd4e05965e35c292
+    config: configs/rtv4/rtv4_hgnetv2_s_coco.yml
+    checkpoint_url: https://drive.google.com/file/d/1jDAVxblqRPEWed7Hxm6GwcEl7zn72U6z
+    gdrive_id: 1jDAVxblqRPEWed7Hxm6GwcEl7zn72U6z
+    checkpoint_sha256: null
+    native_input: 640
+    resolution_policy: spatial_size_configurable
+    preprocessing: letterbox_rgb_imagenet
+    code_license: Apache-2.0
+    weights_license: Apache-2.0
+    upstream_terms: "Student checkpoint published by the authors. Training used a DINOv3 ViT-B/16 teacher. Default fine-tune strips teacher_model and sets loss_distill to 0 so the teacher weights are not downloaded. Redistributing the student weights should keep the DINOv3 license notice."
+    pretraining_data: COCO
+    evidence_urls:
+      - https://github.com/RT-DETRs/RT-DETRv4/blob/55fefaaed7efe2a5f72d0a18fd4e05965e35c292/README.md
+      - https://github.com/RT-DETRs/RT-DETRv4/blob/55fefaaed7efe2a5f72d0a18fd4e05965e35c292/LICENSE
+      - https://github.com/facebookresearch/dinov3/blob/main/LICENSE.md
+    commercial_status: eligible
+    reason: "Apache-2.0 code and author-released COCO student checkpoint. DINOv3 license grants commercial use of derivatives with redistribution conditions. Teacher is not loaded for the fine-tune path."
+    train_status: implemented_upstream
+    export_status: tools/deployment/export_onnx.py
+    fp16_status: tensorrt_fp16_on_device
+    ptq_status: attempted_on_device
+    qat_status: unsupported_qat
+    jetson_status: pending_on_device
+    optional: false
+    enabled: true
+    stack: torch
+    reference_only:
+      coco_ap: 49.8
+      t4_latency_ms: 3.66
+      not_for_ranking: true
+
+  - model_id: rtdetrv4_m
+    family: rtdetrv4
+    variant: M
+    task: detection
+    publication: "ECCV 2026"
+    official_repo: https://github.com/RT-DETRs/RT-DETRv4
+    git_commit: 55fefaaed7efe2a5f72d0a18fd4e05965e35c292
+    config: configs/rtv4/rtv4_hgnetv2_m_coco.yml
+    checkpoint_url: https://drive.google.com/file/d/1O-YpP4X-quuOXbi96y2TKkztbjroP5mX
+    gdrive_id: 1O-YpP4X-quuOXbi96y2TKkztbjroP5mX
+    checkpoint_sha256: null
+    native_input: 640
+    resolution_policy: spatial_size_configurable
+    preprocessing: letterbox_rgb_imagenet
+    code_license: Apache-2.0
+    weights_license: Apache-2.0
+    upstream_terms: "Same student-finetune policy as rtdetrv4_s. Do not download the DINOv3 teacher."
+    pretraining_data: COCO
+    evidence_urls:
+      - https://github.com/RT-DETRs/RT-DETRv4/blob/55fefaaed7efe2a5f72d0a18fd4e05965e35c292/README.md
+    commercial_status: eligible
+    reason: "Apache-2.0 student checkpoint, teacher stripped at fine-tune."
+    train_status: implemented_upstream
+    export_status: tools/deployment/export_onnx.py
+    fp16_status: tensorrt_fp16_on_device
+    ptq_status: attempted_on_device
+    qat_status: unsupported_qat
+    jetson_status: pending_on_device
+    optional: false
+    enabled: true
+    stack: torch
+    reference_only:
+      coco_ap: 53.7
+      not_for_ranking: true
+
+  - model_id: rfdetr_nano
+    family: rfdetr
+    variant: Nano
+    task: detection
+    python_class: RFDETRNano
+    publication: "ICLR 2026"
+    official_repo: https://github.com/roboflow/rf-detr
+    git_ref: "1.11.2"
+    git_commit: 7433d5919d0f7e72cc6cb78663e0a731afd499e0
+    pypi: "rfdetr==1.11.2"
+    checkpoint_url: https://storage.googleapis.com/rfdetr/nano_coco/checkpoint_best_regular.pth
+    checkpoint_filename: rf-detr-nano.pth
+    checkpoint_md5: fb6504cce7fbdc783f7a46991f07639f
+    checkpoint_sha256: null
+    native_input: 384
+    resolution_policy: native_preset_unless_package_accepts
+    preprocessing: rgb_square_native
+    code_license: Apache-2.0
+    weights_license: Apache-2.0
+    upstream_terms: "Roboflow docs list Nano detection weights as Apache-2.0. Backbone is DINOv2. Do not route this model through Ultralytics."
+    pretraining_data: COCO
+    evidence_urls:
+      - https://github.com/roboflow/rf-detr/blob/1.11.2/LICENSE
+      - https://docs.roboflow.com/models/model-licenses
+      - https://github.com/roboflow/rf-detr/blob/1.11.2/src/rfdetr/assets/model_weights.py
+    commercial_status: eligible
+    reason: "Package and Nano/Small/Medium/Large detection weights are explicitly Apache-2.0."
+    train_status: implemented_upstream
+    export_status: RFDETR.export format=onnx
+    fp16_status: tensorrt_fp16_on_device
+    ptq_status: attempted_on_device
+    qat_status: unsupported_qat
+    jetson_status: pending_on_device
+    optional: false
+    enabled: true
+    stack: torch
+    reference_only:
+      params_m: 30.5
+      note: "Nano is not smaller than every S detector; D-FINE-N is listed at 4M by its authors."
+      not_for_ranking: true
+
+  - model_id: rfdetr_small
+    family: rfdetr
+    variant: Small
+    task: detection
+    python_class: RFDETRSmall
+    publication: "ICLR 2026"
+    official_repo: https://github.com/roboflow/rf-detr
+    git_ref: "1.11.2"
+    git_commit: 7433d5919d0f7e72cc6cb78663e0a731afd499e0
+    pypi: "rfdetr==1.11.2"
+    checkpoint_url: https://storage.googleapis.com/rfdetr/small_coco/checkpoint_best_regular.pth
+    checkpoint_filename: rf-detr-small.pth
+    checkpoint_md5: fb37061c1af7bace359c91b723a8d5c1
+    native_input: 512
+    resolution_policy: native_preset_unless_package_accepts
+    preprocessing: rgb_square_native
+    code_license: Apache-2.0
+    weights_license: Apache-2.0
+    upstream_terms: "Apache-2.0 weights. Not an Ultralytics model."
+    pretraining_data: COCO
+    evidence_urls:
+      - https://docs.roboflow.com/models/model-licenses
+    commercial_status: eligible
+    reason: "Explicit Apache-2.0 detection weights."
+    train_status: implemented_upstream
+    export_status: RFDETR.export format=onnx
+    fp16_status: tensorrt_fp16_on_device
+    ptq_status: attempted_on_device
+    qat_status: unsupported_qat
+    jetson_status: pending_on_device
+    optional: false
+    enabled: true
+    stack: torch
+    reference_only:
+      params_m: 32.1
+      not_for_ranking: true
+
+  - model_id: rfdetr_medium
+    family: rfdetr
+    variant: Medium
+    task: detection
+    python_class: RFDETRMedium
+    publication: "ICLR 2026"
+    official_repo: https://github.com/roboflow/rf-detr
+    git_ref: "1.11.2"
+    git_commit: 7433d5919d0f7e72cc6cb78663e0a731afd499e0
+    pypi: "rfdetr==1.11.2"
+    checkpoint_url: https://storage.googleapis.com/rfdetr/medium_coco/checkpoint_best_regular.pth
+    checkpoint_filename: rf-detr-medium.pth
+    checkpoint_md5: 7223f764a87b863f02eb8d52bf0ce2ee
+    native_input: 576
+    resolution_policy: native_preset_unless_package_accepts
+    preprocessing: rgb_square_native
+    code_license: Apache-2.0
+    weights_license: Apache-2.0
+    upstream_terms: "Apache-2.0 weights. Not an Ultralytics model."
+    pretraining_data: COCO
+    evidence_urls:
+      - https://docs.roboflow.com/models/model-licenses
+    commercial_status: eligible
+    reason: "Explicit Apache-2.0 detection weights."
+    train_status: implemented_upstream
+    export_status: RFDETR.export format=onnx
+    fp16_status: tensorrt_fp16_on_device
+    ptq_status: attempted_on_device
+    qat_status: unsupported_qat
+    jetson_status: pending_on_device
+    optional: false
+    enabled: true
+    stack: torch
+    reference_only:
+      params_m: 33.7
+      not_for_ranking: true
+
+  - model_id: rfdetr_xlarge
+    family: rfdetr
+    variant: XLarge
+    task: detection
+    python_class: RFDETRXLarge
+    official_repo: https://github.com/roboflow/rf-detr
+    git_ref: "1.11.2"
+    commercial_status: restricted
+    reason: "PML 1.0 via rfdetr_plus. Not trained or exported."
+    enabled: false
+    optional: false
+    stack: torch
+    code_license: PML-1.0
+    weights_license: PML-1.0
+
+  - model_id: dfine_n
+    family: dfine
+    variant: N
+    task: detection
+    publication: "ICLR 2025 Spotlight"
+    official_repo: https://github.com/Peterande/D-FINE
+    git_commit: 956d1709314c2c6a4df6f34de232054578a7449f
+    config: configs/dfine/dfine_hgnetv2_n_coco.yml
+    checkpoint_url: https://github.com/Peterande/storage/releases/download/dfinev1.0/dfine_n_coco.pth
+    checkpoint_sha256: null
+    rejected_checkpoints: ["dfine_n_obj365.pth", "dfine_n_obj2coco.pth"]
+    native_input: 640
+    resolution_policy: spatial_size_configurable
+    preprocessing: letterbox_rgb_imagenet
+    code_license: Apache-2.0
+    weights_license: Apache-2.0
+    upstream_terms: "COCO checkpoint only. Objects365 checkpoints are unresolved and are not downloaded."
+    pretraining_data: COCO
+    evidence_urls:
+      - https://github.com/Peterande/D-FINE/blob/956d1709314c2c6a4df6f34de232054578a7449f/README.md
+    commercial_status: eligible
+    reason: "Author license note carves out *_obj365 and *_obj2coco. This entry uses the COCO release asset."
+    train_status: implemented_upstream
+    export_status: tools/deployment/export_onnx.py
+    fp16_status: tensorrt_fp16_on_device
+    ptq_status: attempted_on_device
+    qat_status: unsupported_qat
+    jetson_status: pending_on_device
+    optional: false
+    enabled: true
+    stack: torch
+    reference_only:
+      params_m: 4
+      coco_ap: 42.8
+      not_for_ranking: true
+
+  - model_id: dfine_s
+    family: dfine
+    variant: S
+    task: detection
+    publication: "ICLR 2025 Spotlight"
+    official_repo: https://github.com/Peterande/D-FINE
+    git_commit: 956d1709314c2c6a4df6f34de232054578a7449f
+    config: configs/dfine/dfine_hgnetv2_s_coco.yml
+    checkpoint_url: https://github.com/Peterande/storage/releases/download/dfinev1.0/dfine_s_coco.pth
+    rejected_checkpoints: ["dfine_s_obj365.pth", "dfine_s_obj2coco.pth"]
+    native_input: 640
+    resolution_policy: spatial_size_configurable
+    preprocessing: letterbox_rgb_imagenet
+    code_license: Apache-2.0
+    weights_license: Apache-2.0
+    upstream_terms: "COCO checkpoint only."
+    pretraining_data: COCO
+    evidence_urls:
+      - https://github.com/Peterande/D-FINE/blob/956d1709314c2c6a4df6f34de232054578a7449f/README.md
+    commercial_status: eligible
+    reason: "COCO release asset, Objects365 excluded."
+    train_status: implemented_upstream
+    export_status: tools/deployment/export_onnx.py
+    fp16_status: tensorrt_fp16_on_device
+    ptq_status: attempted_on_device
+    qat_status: unsupported_qat
+    jetson_status: pending_on_device
+    optional: false
+    enabled: true
+    stack: torch
+    reference_only:
+      params_m: 10
+      not_for_ranking: true
+
+  - model_id: dfine_m
+    family: dfine
+    variant: M
+    task: detection
+    publication: "ICLR 2025 Spotlight"
+    official_repo: https://github.com/Peterande/D-FINE
+    git_commit: 956d1709314c2c6a4df6f34de232054578a7449f
+    config: configs/dfine/dfine_hgnetv2_m_coco.yml
+    checkpoint_url: https://github.com/Peterande/storage/releases/download/dfinev1.0/dfine_m_coco.pth
+    rejected_checkpoints: ["dfine_m_obj365.pth", "dfine_m_obj2coco.pth"]
+    native_input: 640
+    resolution_policy: spatial_size_configurable
+    preprocessing: letterbox_rgb_imagenet
+    code_license: Apache-2.0
+    weights_license: Apache-2.0
+    pretraining_data: COCO
+    evidence_urls:
+      - https://github.com/Peterande/D-FINE/blob/956d1709314c2c6a4df6f34de232054578a7449f/README.md
+    commercial_status: eligible
+    reason: "COCO release asset, Objects365 excluded."
+    train_status: implemented_upstream
+    export_status: tools/deployment/export_onnx.py
+    fp16_status: tensorrt_fp16_on_device
+    ptq_status: attempted_on_device
+    qat_status: unsupported_qat
+    jetson_status: pending_on_device
+    optional: false
+    enabled: true
+    stack: torch
+    reference_only:
+      params_m: 19
+      not_for_ranking: true
+
+  - model_id: deim_dfine_s
+    family: deim
+    variant: S
+    task: detection
+    publication: "CVPR 2025"
+    official_repo: https://github.com/Intellindust-AI-Lab/DEIM
+    git_commit: 09d35d53d39ee3145a1e61e3a989b28b9468d1dd
+    config: configs/deim_dfine/deim_hgnetv2_s_coco.yml
+    checkpoint_url: null
+    code_license: Apache-2.0
+    weights_license: unresolved
+    commercial_status: unresolved
+    reason: "Training recipe on D-FINE, not a separate architecture. No COCO checkpoint URL was verified in this pass, so it stays optional and off."
+    enabled: false
+    optional: true
+    stack: torch
+    train_status: implemented_upstream
+    export_status: tools/deployment/export_onnx.py
+    qat_status: unsupported_qat
+    evidence_urls:
+      - https://github.com/Intellindust-AI-Lab/DEIM/blob/09d35d53d39ee3145a1e61e3a989b28b9468d1dd/LICENSE
+
+  - model_id: deimv2
+    family: deimv2
+    variant: none
+    task: detection
+    official_repo: https://github.com/Intellindust-AI-Lab/DEIMv2
+    git_commit: f005f50ce565e63f6c298feccb51901a98c3d035
+    code_license: DEIMv2-custom
+    weights_license: DEIMv2-custom
+    commercial_status: restricted
+    reason: "LICENSE.md grants non-commercial use only and says commercial use needs a separate license."
+    evidence_urls:
+      - https://github.com/Intellindust-AI-Lab/DEIMv2/blob/f005f50ce565e63f6c298feccb51901a98c3d035/LICENSE.md
+    enabled: false
+    optional: false
+    stack: none
+
+  - model_id: rtdetrv2_r18
+    family: rtdetrv2
+    variant: S/R18
+    task: detection
+    publication: "CVPR 2024 lineage"
+    official_repo: https://github.com/lyuwenyu/RT-DETR
+    git_commit: df2a96c8c3a098567a1149bf0248da6efe6d495d
+    config: rtdetrv2_pytorch/configs/rtdetrv2/rtdetrv2_r18vd_120e_coco.yml
+    export_script: rtdetrv2_pytorch/tools/export_onnx.py
+    checkpoint_url: null
+    code_license: Apache-2.0
+    weights_license: unresolved
+    commercial_status: unresolved
+    reason: "Optional previous generation. Disabled unless enable_optional_older_baselines is true. Checkpoint URL was not pinned in this pass."
+    enabled: false
+    optional: true
+    stack: torch
+    train_status: implemented_upstream
+    export_status: rtdetrv2_pytorch/tools/export_onnx.py
+
+  - model_id: ppocrv6_tiny
+    family: ppocr
+    variant: PP-OCRv6_tiny_rec
+    task: ocr
+    publication: "PP-OCRv6"
+    official_repo: https://github.com/PaddlePaddle/PaddleOCR
+    git_ref: v3.7.0
+    git_commit: b03f46425e8ff4442b268ce449e3eef758146cd4
+    pypi: "paddleocr==3.7.0"
+    config: configs/rec/PP-OCRv6/PP-OCRv6_tiny_rec.yml
+    checkpoint_url: https://huggingface.co/PaddlePaddle/PP-OCRv6_tiny_rec
+    hf_revision: 0736086f72f666350ebcdc0c3a504eeac89cdfad
+    checkpoint_sha256: null
+    decoder: CTCLabelDecode
+    training_heads: [CTCHead, NRTRHead]
+    inference_head: CTCHead
+    max_length: 25
+    input_color: BGR
+    input_shape: [3, 48, 320]
+    character_dict: ppocr/utils/dict/ppocrv6_tiny_dict.txt
+    code_license: Apache-2.0
+    weights_license: Apache-2.0
+    pretraining_data: "PaddleOCR multilingual rec data, including Vietnamese per the PP-OCRv6 model card"
+    evidence_urls:
+      - https://www.paddleocr.ai/latest/en/version3.x/module_usage/text_recognition.html
+      - https://huggingface.co/PaddlePaddle/PP-OCRv6_tiny_rec
+    commercial_status: eligible
+    reason: "Hugging Face model card license is apache-2.0 at revision 0736086f72f666350ebcdc0c3a504eeac89cdfad. Inference uses TextRecognition(model_name='PP-OCRv6_tiny_rec')."
+    train_status: implemented_upstream
+    export_status: tools/export_model.py
+    fp16_status: tensorrt_fp16_on_device
+    ptq_status: attempted_on_device
+    qat_status: unsupported_qat
+    jetson_status: pending_on_device
+    zero_shot: true
+    optional: false
+    enabled: true
+    stack: paddle
+
+  - model_id: ppocrv6_small
+    family: ppocr
+    variant: PP-OCRv6_small_rec
+    task: ocr
+    official_repo: https://github.com/PaddlePaddle/PaddleOCR
+    git_ref: v3.7.0
+    git_commit: b03f46425e8ff4442b268ce449e3eef758146cd4
+    pypi: "paddleocr==3.7.0"
+    config: configs/rec/PP-OCRv6/PP-OCRv6_small_rec.yml
+    checkpoint_url: https://huggingface.co/PaddlePaddle/PP-OCRv6_small_rec
+    hf_revision: bd619643acac4b9650c040234da8d944476ee3f1
+    decoder: CTCLabelDecode
+    training_heads: [CTCHead, NRTRHead]
+    inference_head: CTCHead
+    max_length: 25
+    input_color: BGR
+    input_shape: [3, 48, 320]
+    character_dict: ppocr/utils/dict/ppocrv6_dict.txt
+    code_license: Apache-2.0
+    weights_license: Apache-2.0
+    evidence_urls:
+      - https://huggingface.co/PaddlePaddle/PP-OCRv6_small_rec
+    commercial_status: eligible
+    reason: "HF card license apache-2.0."
+    train_status: implemented_upstream
+    export_status: tools/export_model.py
+    qat_status: unsupported_qat
+    zero_shot: true
+    optional: false
+    enabled: true
+    stack: paddle
+
+  - model_id: ppocrv5_mobile
+    family: ppocr
+    variant: PP-OCRv5_mobile_rec
+    task: ocr
+    official_repo: https://github.com/PaddlePaddle/PaddleOCR
+    git_ref: v3.7.0
+    git_commit: b03f46425e8ff4442b268ce449e3eef758146cd4
+    config: configs/rec/PP-OCRv5/PP-OCRv5_mobile_rec.yml
+    checkpoint_url: https://huggingface.co/PaddlePaddle/PP-OCRv5_mobile_rec
+    hf_revision: 682f20538d8c086cb2128e5cfac775e6c4904e85
+    decoder: CTC
+    code_license: Apache-2.0
+    weights_license: Apache-2.0
+    commercial_status: eligible
+    reason: "Optional 2025 baseline. Off unless enable_optional_older_baselines is true."
+    enabled: false
+    optional: true
+    stack: paddle
+    zero_shot: true
+    evidence_urls:
+      - https://huggingface.co/PaddlePaddle/PP-OCRv5_mobile_rec
+
+  - model_id: cct_s_v2
+    family: fast_plate_ocr
+    variant: cct-s-v2-global-model
+    task: ocr
+    official_repo: https://github.com/ankandrew/fast-plate-ocr
+    git_ref: v1.1.0
+    git_commit: 9ce7a5b64a939aa421c243b331d42e6bc25ffd44
+    pypi: "fast-plate-ocr==1.1.0"
+    hub_name: cct-s-v2-global-model
+    checkpoint_url: https://github.com/ankandrew/fast-plate-ocr/releases/download/arg-plates/cct_s_v2_global.keras
+    onnx_url: https://github.com/ankandrew/fast-plate-ocr/releases/download/arg-plates/cct_s_v2_global.onnx
+    model_config_url: https://github.com/ankandrew/fast-plate-ocr/releases/download/arg-plates/cct_s_v2_global_model_config.yaml
+    plate_config_url: https://github.com/ankandrew/fast-plate-ocr/releases/download/arg-plates/cct_s_v2_global_plate_config.yaml
+    checkpoint_sha256: null
+    decoder: per_slot_classification
+    not_ctc: true
+    alphabet: "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ_"
+    pad_token: "_"
+    max_length: 10
+    input_color: rgb
+    input_shape: [64, 128, 3]
+    keep_aspect_ratio: false
+    normalization: "scale 1/255, offset 0"
+    code_license: MIT
+    weights_license: MIT
+    pretraining_data: "author global plate set; see release arg-plates"
+    evidence_urls:
+      - https://github.com/ankandrew/fast-plate-ocr/blob/v1.1.0/LICENSE
+      - https://github.com/blakeblackshear/frigate/issues/22891
+      - https://github.com/ankandrew/fast-plate-ocr/releases/tag/arg-plates
+    commercial_status: eligible
+    reason: "Repo is MIT and the author stated on 2026-04-15 that code and models are MIT."
+    train_status: implemented_upstream
+    export_status: "fast-plate-ocr export --format onnx"
+    fp16_status: tensorrt_fp16_on_device
+    ptq_status: attempted_on_device
+    qat_status: unsupported_qat
+    jetson_status: pending_on_device
+    zero_shot: true
+    optional: false
+    enabled: true
+    stack: keras
+    protocol_note: "Official plate config sets keep_aspect_ratio false, so the whole-plate protocol stretches to 128x64. That is recorded per model and is not treated as identical to a pad-preserving OCR."
+
+  - model_id: cct_xs_v2
+    family: fast_plate_ocr
+    variant: cct-xs-v2-global-model
+    task: ocr
+    official_repo: https://github.com/ankandrew/fast-plate-ocr
+    git_ref: v1.1.0
+    git_commit: 9ce7a5b64a939aa421c243b331d42e6bc25ffd44
+    pypi: "fast-plate-ocr==1.1.0"
+    hub_name: cct-xs-v2-global-model
+    checkpoint_url: https://github.com/ankandrew/fast-plate-ocr/releases/download/arg-plates/cct_xs_v2_global.keras
+    onnx_url: https://github.com/ankandrew/fast-plate-ocr/releases/download/arg-plates/cct_xs_v2_global.onnx
+    model_config_url: https://github.com/ankandrew/fast-plate-ocr/releases/download/arg-plates/cct_xs_v2_global_model_config.yaml
+    plate_config_url: https://github.com/ankandrew/fast-plate-ocr/releases/download/arg-plates/cct_xs_v2_global_plate_config.yaml
+    decoder: per_slot_classification
+    not_ctc: true
+    alphabet: "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ_"
+    pad_token: "_"
+    max_length: 10
+    input_color: rgb
+    input_shape: [64, 128, 3]
+    keep_aspect_ratio: false
+    code_license: MIT
+    weights_license: MIT
+    commercial_status: eligible
+    reason: "Same MIT statement and release as cct_s_v2."
+    train_status: implemented_upstream
+    export_status: "fast-plate-ocr export --format onnx"
+    qat_status: unsupported_qat
+    zero_shot: true
+    optional: false
+    enabled: true
+    stack: keras
+    evidence_urls:
+      - https://github.com/ankandrew/fast-plate-ocr/releases/tag/arg-plates
+
+  - model_id: svtrv2_t
+    family: openocr_svtrv2
+    variant: T
+    task: ocr
+    official_repo: https://github.com/Topdu/OpenOCR
+    git_commit: 1ccfc6ee6161f7133b192e16af3a9265273997ba
+    config: configs/rec/svtrv2/svtrv2_tiny_rctc.yml
+    checkpoint_url: null
+    checkpoint_page: https://drive.google.com/drive/folders/12ZUGkCS7tEhFhWa2RKKtyB0tPjhH4d9s?usp=drive_link
+    decoder: CTC
+    max_length: 25
+    character_dict: ./tools/utils/EN_symbol_dict.txt
+    use_space_char: false
+    code_license: Apache-2.0
+    weights_license: unresolved
+    pretraining_data: Union14M-L-Filter
+    commercial_status: unresolved
+    reason: "Code is Apache-2.0. The readme links a Drive folder, not a file id or a weights license, and the training data terms were not cleared. Adapter accepts a manual checkpoint and does not guess a file id."
+    train_status: implemented_upstream
+    export_status: "tools/export_rec.py --type onnx"
+    qat_status: unsupported_qat
+    zero_shot: false
+    optional: false
+    enabled: true
+    stack: torch
+    evidence_urls:
+      - https://github.com/Topdu/OpenOCR/blob/1ccfc6ee6161f7133b192e16af3a9265273997ba/configs/rec/svtrv2/readme.md
+
+  - model_id: svtrv2_s
+    family: openocr_svtrv2
+    variant: S
+    task: ocr
+    official_repo: https://github.com/Topdu/OpenOCR
+    git_commit: 1ccfc6ee6161f7133b192e16af3a9265273997ba
+    config: configs/rec/svtrv2/svtrv2_small_rctc.yml
+    checkpoint_url: null
+    checkpoint_page: https://drive.google.com/drive/folders/1mOG3EUAOsmD16B-VIelVDYf_O64q0G3M?usp=drive_link
+    decoder: CTC
+    max_length: 25
+    code_license: Apache-2.0
+    weights_license: unresolved
+    commercial_status: unresolved
+    reason: "Same as svtrv2_t: folder link only, weights license unresolved."
+    train_status: implemented_upstream
+    export_status: "tools/export_rec.py --type onnx"
+    qat_status: unsupported_qat
+    zero_shot: false
+    optional: false
+    enabled: true
+    stack: torch
+    evidence_urls:
+      - https://github.com/Topdu/OpenOCR/blob/1ccfc6ee6161f7133b192e16af3a9265273997ba/configs/rec/svtrv2/readme.md

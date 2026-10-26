@@ -1,0 +1,7 @@
+# Install into a venv that already has a CUDA torch build. Do not add Paddle or TensorFlow.
+rfdetr==1.11.2
+onnx==1.23.2
+onnxruntime==1.31.0
+PyYAML>=6
+Pillow>=10
+numpy>=1.26

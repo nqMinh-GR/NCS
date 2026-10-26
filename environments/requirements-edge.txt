@@ -1,0 +1,6 @@
+# Jetson runtime. TensorRT, CUDA and cuDNN come from JetPack.
+# Do not install onnxruntime-gpu, a desktop CUDA toolkit, or an x86_64 TensorRT wheel.
+PyYAML>=6
+Pillow>=10
+numpy>=1.26
+onnx==1.23.2

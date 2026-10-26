@@ -1,0 +1,23 @@
+# Host parity and training stacks. Do not install these together in one kernel.
+# Versions checked on 2026-10-26 against PyPI and the pinned git tags.
+
+# Core, used by unit tests and both notebooks.
+PyYAML>=6
+Pillow>=10
+numpy>=1.26
+
+# Torch stack. Use the CUDA torch already installed on Colab or the Jetson pip index.
+# Then: pip install -r environments/requirements-torch.txt
+# rfdetr==1.11.2
+# onnx==1.23.2
+# onnxruntime==1.31.0
+
+# Paddle stack, separate venv.
+# paddleocr==3.7.0
+# Install the PaddlePaddle wheel that matches the CUDA version. Do not guess it here.
+
+# Keras stack, separate venv.
+# fast-plate-ocr[train]==1.1.0
+
+# Edge. Do not pip install onnxruntime-gpu, desktop CUDA, or an x86 TensorRT wheel.
+# Use the TensorRT Python package shipped with the board's JetPack.

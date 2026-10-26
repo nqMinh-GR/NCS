@@ -1,0 +1,5 @@
+# Separate venv. Training extra pulls a Keras backend; the notebook sets KERAS_BACKEND=tensorflow.
+fast-plate-ocr[train]==1.1.0
+PyYAML>=6
+Pillow>=10
+numpy>=1.26

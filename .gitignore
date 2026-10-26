@@ -1,0 +1,14 @@
+.venv/
+venvs/
+runs/
+data/raw/
+data/cache/
+**/.env
+**/credentials.json
+**/*api_key*
+**/__pycache__/
+**/*.pyc
+.ipynb_checkpoints/
+.pytest_cache/
+execution_status.json
+*.engine

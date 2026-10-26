@@ -1,0 +1,6 @@
+# Separate venv. paddleocr 3.7.0 matches git tag v3.7.0 (b03f46425e8ff4442b268ce449e3eef758146cd4).
+# Install the matching paddlepaddle wheel before this package. The wheel depends on CUDA and is not pinned here.
+paddleocr==3.7.0
+PyYAML>=6
+Pillow>=10
+numpy>=1.26

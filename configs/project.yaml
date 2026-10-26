@@ -1,0 +1,97 @@
+project: vn_alpr_model_benchmark
+run_mode: auto
+profile: screen
+seed: 42
+commercial_only: true
+run_root: ./runs/vn_alpr
+max_download_gb: 30
+allow_network: true
+allow_unverified_weights: false
+allow_pseudo_labels: false
+enable_optional_older_baselines: false
+# Host ONNX export target. Not the newest opset, and not a claim about an
+# unprobed JetPack. The edge notebook records the TensorRT parser it finds.
+onnx_opset: 17
+checked_at: "2026-10-26"
+
+detectors_screen: [rtdetrv4_s, rfdetr_small, dfine_n, dfine_s]
+detectors_full: [rtdetrv4_s, rtdetrv4_m, rfdetr_nano, rfdetr_small, rfdetr_medium, dfine_n, dfine_s, dfine_m]
+ocrs_screen: [ppocrv6_tiny, cct_s_v2, svtrv2_t]
+ocrs_full: [ppocrv6_tiny, ppocrv6_small, cct_xs_v2, cct_s_v2, svtrv2_t, svtrv2_s]
+
+detection:
+  primary_classes: [license_plate]
+  default_input: 640
+  extra_input_candidates: [960]
+  evaluate_native_resolution: true
+  score_threshold: 0.5
+  iou_match: 0.5
+
+ocr:
+  protocols: [whole_plate, predicted_split_lines]
+  zero_shot_before_finetune: true
+  # Analysis only. Predictions are not rewritten to match this pattern.
+  vn_validity_regex: "^[0-9]{2}[A-Z][0-9A-Z]{4,6}$"
+
+training:
+  det_max_epochs: 100
+  ocr_max_epochs: 50
+  det_batch_size: 4
+  ocr_batch_size: 16
+  grad_accum_steps: 1
+  num_workers: 2
+  # null keeps the upstream learning rate.
+  learning_rate: null
+  # RF-DETR keeps its native resolution unless force_det_input is true.
+  # RT-DETRv4 and D-FINE stay on the 640 resize baked into their configs.
+  det_input_size: 640
+  force_det_input: false
+  # null uses every image that passed the split. A positive integer caps the set.
+  max_images: null
+  use_gpu: false
+  patience: 15
+  resume: true
+  sequential_models: true
+  final_top_models_seeds: [42, 43, 44]
+  smoke_det_epochs: 1
+  smoke_ocr_epochs: 1
+  smoke_max_images: 8
+
+quantization:
+  baseline: fp16
+  attempt_ptq: true
+  calibration_samples: 1000
+  calibration_split: train
+  attempt_mixed_precision: true
+  qat_top_models_only: true
+  max_detector_recall_drop_pp: 0.5
+  max_ocr_exact_drop_pp: 1.0
+  max_combined_exact_drop_pp: 1.0
+
+edge:
+  workspace_gib_initial: 1
+  reserve_system_ram_gib: 4
+  change_power_mode_automatically: false
+  run_sustained_benchmark: true
+
+benchmark:
+  batch_size_primary: 1
+  extra_batches_if_fit: [4, 8]
+  warmup_iterations: 50
+  min_timed_iterations: 500
+  min_timed_seconds: 30
+  repeats: 3
+  sustained_seconds: 600
+  smoke_warmup_iterations: 1
+  smoke_min_timed_iterations: 2
+  smoke_min_timed_seconds: 0
+  smoke_repeats: 1
+  smoke_sustained_seconds: 0
+
+auxiliary:
+  max_fraction_of_train: 0.2
+
+packaging:
+  # Browser download in Colab is unreliable above this size.
+  colab_download_limit_mb: 200
+  exclude_dir_names: [raw, cache, credentials, teacher]
