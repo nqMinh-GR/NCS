@@ -411,8 +411,13 @@ def test_coco_tree_materializes_rfdetr_layout(tmp_path: Path):
     from vn_alpr.data.ingest import _balance_ocr_splits, _character, _plate_string, choose_listed_version
 
     assert _character("char_A") == "A"
+    assert _character("0.0") == "0"
+    assert _character("(B)") == "B"
+    assert _character("-") is None
+    assert _character("bien_so_xe") is None
     assert _plate_string("51A12345") == "51A12345"
     assert _plate_string("motorcycle") is None
+    assert _plate_string("bien_so_xe") is None
     assert choose_listed_version([1, 3, 2], None) == (3, "highest_listed")
     assert choose_listed_version([4], None) == (4, "only_listed")
     assert choose_listed_version([1, 2], 1) == (1, "pinned")
@@ -431,6 +436,93 @@ def test_coco_tree_materializes_rfdetr_layout(tmp_path: Path):
         linked.extend(Path(image_dirs[split]).iterdir())
     assert any(path.is_symlink() for path in linked)
     assert (tmp_path / "canonical" / "instances_train.json").exists()
+
+
+def test_character_rows_keep_split_for_ocr_sidecar(tmp_path: Path):
+    from PIL import Image
+
+    from vn_alpr.data.ingest import _ocr_sidecars, samples_from_coco_tree
+    from vn_alpr.data.prepare import prepare_locked_split
+
+    root = tmp_path / "chars" / "train"
+    root.mkdir(parents=True)
+    Image.new("RGB", (32, 16), (255, 0, 0)).save(root / "a.jpg")
+    Image.new("RGB", (32, 16), (0, 0, 255)).save(root / "b.jpg")
+    document = {
+        "images": [
+            {"id": 1, "file_name": "a.jpg", "width": 32, "height": 16},
+            {"id": 2, "file_name": "b.jpg", "width": 32, "height": 16},
+        ],
+        "annotations": [
+            {"id": 1, "image_id": 1, "category_id": 1, "bbox": [1, 2, 4, 10]},
+            {"id": 2, "image_id": 1, "category_id": 2, "bbox": [8, 2, 4, 10]},
+            {"id": 3, "image_id": 2, "category_id": 1, "bbox": [1, 2, 4, 10]},
+            {"id": 4, "image_id": 2, "category_id": 3, "bbox": [8, 2, 4, 10]},
+        ],
+        "categories": [{"id": 1, "name": "5"}, {"id": 2, "name": "1"}, {"id": 3, "name": "A"}],
+    }
+    (root / "_annotations.coco.json").write_text(json.dumps(document), encoding="utf-8")
+    samples = samples_from_coco_tree(
+        tmp_path / "chars",
+        {"dataset_id": "chars", "role": "primary", "country": "VN", "source_family_id": "chars"},
+    )
+    manifest = prepare_locked_split(
+        samples,
+        tmp_path / "canonical",
+        seed=1,
+        ratios=(0.5, 0.5, 0.0),
+        calibration_n=1,
+    )
+    rows = [json.loads(line) for line in (tmp_path / "canonical" / "ocr.jsonl").read_text(encoding="utf-8").splitlines()]
+    assert {row["text_normalized"] for row in rows} == {"51", "5A"}
+    assert {row["split"] for row in rows} == {"train", "val"}
+    _ocr_sidecars(tmp_path / "canonical", manifest)
+    assert manifest["ocr_counts"]["train"] >= 1
+    assert manifest["ocr_counts"]["val"] >= 1
+    train_list = Path(manifest["paddle_lists"]["train_list"]).read_text(encoding="utf-8")
+    val_list = Path(manifest["paddle_lists"]["val_list"]).read_text(encoding="utf-8")
+    assert "\t" in train_list and "\t" in val_list
+
+
+def test_coco_links_string_ids_and_non_list_bbox(tmp_path: Path):
+    from PIL import Image
+
+    from vn_alpr.data.ingest import samples_from_coco_tree
+
+    root = tmp_path / "loose" / "train"
+    root.mkdir(parents=True)
+    Image.new("RGB", (40, 16), (255, 255, 255)).save(root / "p.jpg")
+    document = {
+        "images": [{"id": 7, "file_name": "p.jpg", "width": 40, "height": 16}],
+        "annotations": [
+            {"id": 1, "image_id": "7", "category_id": "1", "bbox": {"x": 1, "y": 2, "width": 4, "height": 10}},
+            {"id": 2, "image_id": "7", "category_id": 2, "segmentation": [[8, 2, 12, 2, 12, 12, 8, 12]]},
+            {
+                "id": 3,
+                "image_id": "7",
+                "category_id": 3,
+                "bbox": [20, 2, 4, 10],
+                "attributes": {"text": "51A12345"},
+            },
+        ],
+        "categories": [
+            {"id": "1", "name": "0.0"},
+            {"id": 2, "name": "(B)"},
+            {"id": 3, "name": "bien_so_xe"},
+        ],
+    }
+    (root / "_annotations.coco.json").write_text(json.dumps(document), encoding="utf-8")
+    names: set[str] = set()
+    samples = samples_from_coco_tree(
+        tmp_path / "loose",
+        {"dataset_id": "loose", "role": "primary", "country": "VN", "source_family_id": "loose"},
+        names,
+    )
+    assert samples[0]["text_raw"] == "51A12345"
+    assert [box["char"] for box in samples[0]["char_boxes"]] == ["0", "B"]
+    assert names == {"0.0", "(B)", "bien_so_xe"}
+    plate_names = [box["name"] for box in samples[0]["boxes"]]
+    assert "bien_so_xe" in plate_names
 
 
 def test_launch_passes_keras_backend(tmp_path: Path):

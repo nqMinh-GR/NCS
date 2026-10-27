@@ -89,37 +89,40 @@ def prepare_locked_split(
         (out_dir / f"rejected_{split}.json").write_text(json.dumps(rejected, indent=2), encoding="utf-8")
 
     ocr_rows = []
-    for sample in samples:
-        if sample["sample_id"] in excluded_ids:
-            continue
-        chars = sample.get("char_boxes")
-        if chars:
-            row = ocr_row_from_chars(sample, chars, sample.get("plate_quad"))
-        elif sample.get("text_raw"):
-            raw = str(sample["text_raw"])
-            row = {
-                "sample_id": sample["sample_id"],
-                "image_path": sample.get("image_path"),
-                "crop_path": sample.get("crop_path") or sample.get("image_path"),
-                "source_family_id": sample.get("source_family_id"),
-                "dataset_id": sample.get("dataset_id"),
-                "parent_image_id": sample.get("parent_image_id", sample["sample_id"]),
-                "bbox_or_quad": (sample.get("boxes") or [{}])[0].get("bbox"),
-                "text_raw": raw,
-                "text_normalized": normalize_plate(raw),
-                "layout": sample.get("layout") or "unknown",
-                "line_texts": sample.get("line_texts") or [raw],
-                "country": sample.get("country", "VN"),
-                "readable": True,
-                "label_origin": sample.get("label_origin", "source"),
-                "label_verification_status": "source",
-                "split": assignment[sample_group[sample["sample_id"]]],
-                "group_id": sample_group[sample["sample_id"]],
-            }
-        else:
-            continue
-        row["self_test"] = self_test
-        ocr_rows.append(row)
+    # Use the copies that already carry the assigned split. Character rows otherwise
+    # keep split unset, and the OCR sidecar then drops every assembled plate.
+    for split_rows in by_split.values():
+        for sample in split_rows:
+            chars = sample.get("char_boxes")
+            if chars:
+                row = ocr_row_from_chars(sample, chars, sample.get("plate_quad"))
+            elif sample.get("text_raw"):
+                raw = str(sample["text_raw"])
+                row = {
+                    "sample_id": sample["sample_id"],
+                    "image_path": sample.get("image_path"),
+                    "crop_path": sample.get("crop_path") or sample.get("image_path"),
+                    "source_family_id": sample.get("source_family_id"),
+                    "dataset_id": sample.get("dataset_id"),
+                    "parent_image_id": sample.get("parent_image_id", sample["sample_id"]),
+                    "bbox_or_quad": (sample.get("boxes") or [{}])[0].get("bbox"),
+                    "text_raw": raw,
+                    "text_normalized": normalize_plate(raw),
+                    "layout": sample.get("layout") or "unknown",
+                    "line_texts": sample.get("line_texts") or [raw],
+                    "country": sample.get("country", "VN"),
+                    "readable": True,
+                    "label_origin": sample.get("label_origin", "source"),
+                    "label_verification_status": "source",
+                    "split": sample["split"],
+                    "group_id": sample["group_id"],
+                }
+            else:
+                continue
+            row["split"] = sample["split"]
+            row["group_id"] = sample["group_id"]
+            row["self_test"] = self_test
+            ocr_rows.append(row)
     write_jsonl(out_dir / "ocr.jsonl", ocr_rows)
 
     train_ids = sample_ids_for_split(groups, assignment, "train")

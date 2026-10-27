@@ -41,10 +41,16 @@ def _character(name: str) -> str | None:
     text = str(name).strip()
     if len(text) == 1 and text.isalnum():
         return text.upper()
+    # A YAML float can turn the class "0" into "0.0". That is still the digit class.
+    if re.fullmatch(r"[0-9]\.0+", text):
+        return text[0]
     # Some exports prefix the glyph, for example char_A or character-5.
     tail = text.replace("-", "_").split("_")[-1]
     if tail != text and len(tail) == 1 and tail.isalnum():
         return tail.upper()
+    glyphs = [char for char in text if char.isalnum()]
+    if len(glyphs) == 1 and any(not char.isalnum() for char in text):
+        return glyphs[0].upper()
     return None
 
 
@@ -72,39 +78,221 @@ def choose_listed_version(numbers: list[int], pinned: int | None) -> tuple[int |
     return listed[-1], "highest_listed"
 
 
-def samples_from_coco_tree(root: Path, dataset: dict[str, Any]) -> list[dict[str, Any]]:
+def _id_keys(value: Any) -> list[Any]:
+    """Integer 1 and string "1" are the same COCO id. Bools are not ids."""
+    if isinstance(value, bool) or value is None:
+        return []
+    keys: list[Any] = [value]
+    if isinstance(value, float) and value.is_integer():
+        number = int(value)
+        if number not in keys:
+            keys.append(number)
+        text = str(number)
+    else:
+        text = str(value).strip()
+    if text and text not in keys:
+        keys.append(text)
+    if text.isdigit():
+        number = int(text)
+        if number not in keys:
+            keys.append(number)
+    elif re.fullmatch(r"\d+\.0+", text or ""):
+        number = int(text.split(".", 1)[0])
+        if number not in keys:
+            keys.append(number)
+        if str(number) not in keys:
+            keys.append(str(number))
+    return keys
+
+
+def _append_under(buckets: dict[Any, list], keys: list[Any], item: Any) -> None:
+    aliases: list[Any] = []
+    for key in keys:
+        for alias in _id_keys(key):
+            if alias not in aliases:
+                aliases.append(alias)
+    if not aliases:
+        return
+    existing = None
+    for alias in aliases:
+        if alias in buckets:
+            existing = buckets[alias]
+            break
+    if existing is None:
+        buckets[aliases[0]].append(item)
+        existing = buckets[aliases[0]]
+    else:
+        existing.append(item)
+    for alias in aliases:
+        buckets[alias] = existing
+
+
+def _first_list(buckets: dict[Any, list], *values: Any) -> list:
+    for value in values:
+        for key in _id_keys(value):
+            if key in buckets:
+                return buckets[key]
+    return []
+
+
+def _put_text(texts: dict[Any, str], key: Any, value: str, *, overwrite: bool = False) -> None:
+    aliases = _id_keys(key)
+    if not aliases:
+        return
+    if not overwrite and any(alias in texts for alias in aliases):
+        return
+    for alias in aliases:
+        texts[alias] = value
+
+
+def _first_text(texts: dict[Any, str], *values: Any) -> str | None:
+    for value in values:
+        for key in _id_keys(value):
+            if key in texts:
+                return texts[key]
+    return None
+
+
+def _bbox_xywh(ann: dict[str, Any]) -> list[float] | None:
+    bbox = ann.get("bbox")
+    if isinstance(bbox, dict):
+        x = bbox.get("x", bbox.get("left"))
+        y = bbox.get("y", bbox.get("top"))
+        width = bbox.get("width", bbox.get("w"))
+        height = bbox.get("height", bbox.get("h"))
+        try:
+            if None not in (x, y, width, height):
+                return [float(x), float(y), float(width), float(height)]
+        except (TypeError, ValueError):
+            return None
+    if isinstance(bbox, (list, tuple)) and len(bbox) >= 4:
+        try:
+            return [float(bbox[0]), float(bbox[1]), float(bbox[2]), float(bbox[3])]
+        except (TypeError, ValueError):
+            pass
+    segmentation = ann.get("segmentation")
+    if not isinstance(segmentation, list):
+        return None
+    for part in segmentation:
+        if not isinstance(part, (list, tuple)) or len(part) < 6:
+            continue
+        try:
+            xs = [float(part[index]) for index in range(0, len(part), 2)]
+            ys = [float(part[index]) for index in range(1, len(part), 2)]
+        except (TypeError, ValueError):
+            continue
+        if xs and ys:
+            return [min(xs), min(ys), max(xs) - min(xs), max(ys) - min(ys)]
+    return None
+
+
+def _category_map(document: dict[str, Any], label_names: set[str] | None) -> dict[Any, str]:
+    categories: dict[Any, str] = {}
+    for item in document.get("categories") or []:
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("name", "") or "")
+        if name and label_names is not None:
+            label_names.add(name)
+        for key in _id_keys(item.get("id")):
+            categories[key] = name
+    return categories
+
+
+def _annotation_name(ann: dict[str, Any], categories: dict[Any, str]) -> str:
+    for key in _id_keys(ann.get("category_id")):
+        if key in categories and categories[key]:
+            return categories[key]
+    attributes = ann.get("attributes") if isinstance(ann.get("attributes"), dict) else {}
+    for key in ("label", "class", "category_name", "class_name"):
+        if ann.get(key):
+            return str(ann[key])
+        if attributes.get(key):
+            return str(attributes[key])
+    return ""
+
+
+def _annotation_text(ann: dict[str, Any]) -> str | None:
+    attributes = ann.get("attributes") if isinstance(ann.get("attributes"), dict) else {}
+    for key in TEXT_KEYS:
+        if ann.get(key):
+            return str(ann[key])
+        if attributes.get(key):
+            return str(attributes[key])
+    return None
+
+
+def _iter_annotations(document: dict[str, Any]):
+    annotations = document.get("annotations") or []
+    if annotations:
+        for ann in annotations:
+            if isinstance(ann, dict):
+                yield ann
+        return
+    for image in document.get("images") or []:
+        if not isinstance(image, dict):
+            continue
+        nested = image.get("annotations") or image.get("objects") or []
+        for ann in nested:
+            if not isinstance(ann, dict):
+                continue
+            copied = dict(ann)
+            copied.setdefault("image_id", image.get("id"))
+            yield copied
+
+
+def samples_from_coco_tree(
+    root: Path,
+    dataset: dict[str, Any],
+    label_names: set[str] | None = None,
+) -> list[dict[str, Any]]:
     samples = []
     seen: set[str] = set()
     for ann_path in sorted(root.rglob("*.json")):
         try:
-            document = json.loads(ann_path.read_text(encoding="utf-8"))
+            document = json.loads(ann_path.read_text(encoding="utf-8-sig"))
         except (OSError, json.JSONDecodeError):
             continue
-        if not isinstance(document, dict) or "images" not in document or "annotations" not in document:
+        if not isinstance(document, dict) or "images" not in document:
             continue
-        categories = {item.get("id"): item.get("name", "") for item in document.get("categories", [])}
+        if "annotations" not in document and not any(
+            isinstance(image, dict) and (image.get("annotations") or image.get("objects"))
+            for image in document.get("images") or []
+        ):
+            continue
+        categories = _category_map(document, label_names)
         boxes: dict[Any, list[dict[str, Any]]] = defaultdict(list)
         chars: dict[Any, list[dict[str, Any]]] = defaultdict(list)
         texts: dict[Any, str] = {}
-        for ann in document.get("annotations", []):
-            name = categories.get(ann.get("category_id"), "")
-            bbox = ann.get("bbox")
-            boxes[ann.get("image_id")].append({"name": name, "bbox": bbox})
+        for ann in _iter_annotations(document):
+            name = _annotation_name(ann, categories)
+            if name and label_names is not None:
+                label_names.add(name)
+            bbox = _bbox_xywh(ann)
+            link_keys = [ann.get("image_id"), ann.get("file_name")]
+            _append_under(boxes, link_keys, {"name": name, "bbox": bbox})
             character = _character(name)
-            if character and isinstance(bbox, list) and len(bbox) >= 4:
-                chars[ann.get("image_id")].append(
-                    {"char": character, "x": bbox[0], "y": bbox[1], "w": bbox[2], "h": bbox[3]}
+            if character and bbox:
+                _append_under(
+                    chars,
+                    link_keys,
+                    {"char": character, "x": bbox[0], "y": bbox[1], "w": bbox[2], "h": bbox[3]},
                 )
             plate_string = _plate_string(name)
-            if plate_string and ann.get("image_id") not in texts:
-                texts[ann.get("image_id")] = plate_string
-            for key in TEXT_KEYS:
-                if ann.get(key):
-                    texts[ann.get("image_id")] = str(ann[key])
-                    break
+            if plate_string:
+                _put_text(texts, ann.get("image_id"), plate_string)
+                if ann.get("file_name"):
+                    _put_text(texts, ann.get("file_name"), plate_string)
+            explicit = _annotation_text(ann)
+            if explicit:
+                _put_text(texts, ann.get("image_id"), explicit, overwrite=True)
+                if ann.get("file_name"):
+                    _put_text(texts, ann.get("file_name"), explicit, overwrite=True)
         folder_name = ann_path.parent.name.lower()
         split_name = folder_name if folder_name in {"train", "valid", "val", "test"} else None
         for image in document.get("images", []):
+            if not isinstance(image, dict):
+                continue
             file_name = image.get("file_name")
             if not file_name:
                 continue
@@ -120,6 +308,8 @@ def samples_from_coco_tree(root: Path, dataset: dict[str, Any]) -> list[dict[str
             if not width or not height:
                 with Image.open(path) as handle:
                     width, height = handle.size
+            linked_boxes = _first_list(boxes, image.get("id"), file_name)
+            linked_chars = _first_list(chars, image.get("id"), file_name)
             samples.append(
                 {
                     "sample_id": sample_id,
@@ -131,9 +321,9 @@ def samples_from_coco_tree(root: Path, dataset: dict[str, Any]) -> list[dict[str
                     "source_family_id": dataset.get("source_family_id") or dataset["dataset_id"],
                     "country": dataset.get("country"),
                     "role": dataset.get("role"),
-                    "boxes": [box for box in boxes.get(image.get("id"), []) if box.get("bbox")],
-                    "char_boxes": chars.get(image.get("id")) or None,
-                    "text_raw": texts.get(image.get("id")),
+                    "boxes": [box for box in linked_boxes if box.get("bbox")],
+                    "char_boxes": linked_chars or None,
+                    "text_raw": _first_text(texts, image.get("id"), file_name),
                     "official_test": split_name == "test",
                 }
             )
@@ -222,6 +412,7 @@ def _ocr_sidecars(out_dir: Path, manifest: dict[str, Any]) -> None:
     val_rows = [row for row in usable if row["split"] == "val"]
     train_rows, val_rows = _balance_ocr_splits(train_rows, val_rows)
     if not train_rows or not val_rows:
+        manifest["ocr_counts"] = {"train": len(train_rows), "val": len(val_rows), "cct": {}}
         return
     image_root = out_dir / "ocr_images"
     image_root.mkdir(parents=True, exist_ok=True)
@@ -356,6 +547,7 @@ def prepare_training_data(
     selected = {row["dataset_id"] for row in catalog_plan(cfg["commercial_only"]) if row["selected_for_default_download"]}
     statuses = []
     samples: list[dict[str, Any]] = []
+    label_names: dict[str, list[str]] = {}
     max_gb = float(cfg["max_download_gb"])
     datasets = [dataset for dataset in load_datasets() if dataset["dataset_id"] in selected]
     datasets.sort(key=_download_rank)
@@ -374,10 +566,19 @@ def prepare_training_data(
             continue
         statuses.append(status)
         if status.get("status") == "downloaded":
-            samples.extend(samples_from_coco_tree(dest, dataset))
+            seen_names: set[str] = set()
+            samples.extend(samples_from_coco_tree(dest, dataset, seen_names))
+            label_names[dataset["dataset_id"]] = sorted(seen_names, key=lambda name: (len(name), name))[:80]
     samples, scope = limit_samples(samples, cfg)
     if not samples:
-        return {"status": "dataset_missing", "downloads": statuses, "counts": {}, "score_scope": scope}
+        return {
+            "status": "dataset_missing",
+            "downloads": statuses,
+            "counts": {},
+            "score_scope": scope,
+            "label_names": label_names,
+            "ocr_text_samples": 0,
+        }
     out_dir.mkdir(parents=True, exist_ok=True)
     official = [sample["sample_id"] for sample in samples if sample.get("official_test")]
     manifest = prepare_locked_split(
@@ -402,5 +603,7 @@ def prepare_training_data(
         "score_scope": scope,
         "ocr": bool((manifest.get("paddle_lists") or {}).get("train_list")),
         "ocr_counts": manifest.get("ocr_counts"),
+        "ocr_text_samples": sum(1 for sample in samples if sample.get("char_boxes") or sample.get("text_raw")),
+        "label_names": label_names,
         "manifest": str(out_dir / "split_manifest.json"),
     }
