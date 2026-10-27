@@ -124,7 +124,7 @@ PyTorch dùng sẵn trên Colab, kèm RF-DETR. Ô này cũng cài dependency c�
 Không cài lại `torch` hay `torchvision` từ pip, để giữ bản CUDA của Colab. Paddle và Keras nằm ở hai venv riêng. Colab thường không có `ensurepip`, nên ô này dùng `virtualenv` khi `venv` tạo thất bại. Paddle GPU được ghim `paddlepaddle-gpu==3.3.0` từ index `cu126` vì bản đó có wheel Python 3.13. Keras được ghim `tensorflow==2.21.0`, vì bản đó có wheel Python 3.13. Venv Keras còn cài `onnxruntime==1.31.0` bản CPU: `fast-plate-ocr` import `LicensePlateRecognizer` ngay khi nạp package và báo lỗi nếu thiếu ONNX Runtime. Bản CPU tránh đụng thư viện CUDA của TensorFlow trong cùng venv. Paddle hoặc Keras cài thất bại thì ô này dừng, không bỏ qua stack đó.
 """),
         code("""
-import subprocess, sys
+import os, subprocess, sys
 from pathlib import Path
 
 def pip_install(python, packages, index=None):
@@ -228,7 +228,13 @@ for name, packages in stacks.items():
         else:
             pip_install(str(py), packages)
         probe = "import paddle, paddleocr" if name == "paddle" else "import fast_plate_ocr, keras, tensorflow; import fast_plate_ocr.cli.train"
-        checked = subprocess.run([str(py), "-c", probe], check=False, text=True, capture_output=True)
+        probe_env = None
+        if name == "keras":
+            # Colab sets MPLBACKEND to matplotlib_inline, which this venv does not have.
+            probe_env = dict(os.environ)
+            probe_env["MPLBACKEND"] = "Agg"
+            probe_env["KERAS_BACKEND"] = "tensorflow"
+        checked = subprocess.run([str(py), "-c", probe], check=False, text=True, capture_output=True, env=probe_env)
         if checked.returncode != 0:
             tail = (checked.stderr or checked.stdout or "import failed").strip()[-500:]
             print("install_failed", name, tail)

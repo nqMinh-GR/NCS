@@ -313,7 +313,7 @@ def cct_commands(model: dict[str, Any], run_dir: Path, epochs: int, hparams: dic
     return {
         "train_argv": train,
         "export_argv": export,
-        "env": {"KERAS_BACKEND": "tensorflow"},
+        "env": {"KERAS_BACKEND": "tensorflow", "MPLBACKEND": "Agg"},
         "decoder": "per_slot_classification",
         "batch_size": batch,
     }

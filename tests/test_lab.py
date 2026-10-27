@@ -192,6 +192,8 @@ loss_distill: 5
     assert "TextRecognition" in " ".join(paddle["zero_shot_argv"])
     cct = commands_for(models["cct_s_v2"], root / "cct", 1, hparams={"ocr_batch_size": 8, "num_workers": 1, "learning_rate": 0.0003})
     assert cct["decoder"] == "per_slot_classification"
+    assert cct["env"]["MPLBACKEND"] == "Agg"
+    assert cct["env"]["KERAS_BACKEND"] == "tensorflow"
     assert cct["train_argv"][cct["train_argv"].index("--batch-size") + 1] == "8"
     assert "--lr" in cct["train_argv"]
     assert "train_dataloader.total_batch_size=2" in " ".join(
