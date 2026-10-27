@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -57,12 +58,20 @@ def _clone(repo_url: str, commit: str, dest: Path) -> dict[str, Any]:
     return {"status": "ok", "path": str(dest)}
 
 
-def launch_upstream(argv: list[str], cwd: Path, log_path: Path) -> dict[str, Any]:
+def launch_upstream(
+    argv: list[str],
+    cwd: Path,
+    log_path: Path,
+    env: dict[str, str] | None = None,
+) -> dict[str, Any]:
     exe = argv[0]
-    if shutil.which(exe) is None and exe not in {"python", "python3"}:
+    if shutil.which(exe) is None and exe not in {"python", "python3"} and not Path(exe).is_file():
         return {"status": "dependency_missing", "argv": argv, "reason": f"{exe} not on PATH"}
     log_path.parent.mkdir(parents=True, exist_ok=True)
-    completed = subprocess.run(argv, cwd=str(cwd), check=False, capture_output=True, text=True)
+    run_env = os.environ.copy()
+    if env:
+        run_env.update({str(key): str(value) for key, value in env.items()})
+    completed = subprocess.run(argv, cwd=str(cwd), check=False, capture_output=True, text=True, env=run_env)
     log_path.write_text(completed.stdout + "\n" + completed.stderr, encoding="utf-8")
     return {
         "status": "ok" if completed.returncode == 0 else "failed",
@@ -172,9 +181,9 @@ def attempt(
     if not argv:
         return {"status": "failed", "reason": "no train command"}
     cwd = work / "upstream" if model["family"] in clone_families else work
-    launched = launch_upstream(argv, cwd, work / "train.log")
+    launched = launch_upstream(argv, cwd, work / "train.log", env=spec.get("env"))
     if launched["status"] == "ok" and spec.get("export_argv"):
-        exported = launch_upstream(spec["export_argv"], cwd, work / "export.log")
+        exported = launch_upstream(spec["export_argv"], cwd, work / "export.log", env=spec.get("env"))
         launched["export_status"] = exported["status"]
         launched["export_log"] = exported.get("log")
     return launched

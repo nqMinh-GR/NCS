@@ -121,7 +121,7 @@ PADDLE_CUDA = "cu126"  # None = wheel mặc định. Nếu index GPU lỗi, ô c
 ## 3. Cài môi trường
 
 PyTorch dùng sẵn trên Colab, kèm RF-DETR. Ô này cũng cài dependency của RT-DETRv4 và D-FINE, trong đó có `faster-coco-eval`. Thiếu package đó thì `train.py` chết ngay lúc import, trước khi GPU nhận model, nên không có đợt tràn VRAM.
-Không cài lại `torch` hay `torchvision` từ pip, để giữ bản CUDA của Colab. Paddle và Keras nằm ở hai venv riêng. Một stack cài lỗi thì stack đó bị ghi `dependency_missing` và các stack khác vẫn chạy.
+Không cài lại `torch` hay `torchvision` từ pip, để giữ bản CUDA của Colab. Paddle và Keras nằm ở hai venv riêng. Colab thường không có `ensurepip`, nên ô này dùng `virtualenv` khi `venv` tạo thất bại. Paddle GPU được ghim `paddlepaddle-gpu==3.3.0` từ index `cu126` vì bản đó có wheel Python 3.13. Một stack cài lỗi thì stack đó bị ghi `dependency_missing` và các stack khác vẫn chạy.
 """),
         code("""
 import subprocess, sys
@@ -131,8 +131,10 @@ def pip_install(python, packages, index=None):
     cmd = [python, "-m", "pip", "install", "--upgrade-strategy", "only-if-needed", *packages]
     if index:
         cmd.extend(["-i", index])
-    print(" ".join(cmd[:6]), "...")
-    subprocess.check_call(cmd)
+    print(" ".join(cmd[:8]), "...")
+    completed = subprocess.run(cmd, check=False, text=True)
+    if completed.returncode != 0:
+        raise subprocess.CalledProcessError(completed.returncode, cmd)
 
 try:
     pip_install(sys.executable, [
@@ -163,25 +165,52 @@ except subprocess.CalledProcessError:
     else:
         print("install_failed", "onnxruntime")
 
+def make_venv(path):
+    py = path / "bin" / "python"
+    if py.exists():
+        return py
+    path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        subprocess.check_call([sys.executable, "-m", "venv", str(path)])
+    except subprocess.CalledProcessError:
+        print("stdlib venv failed; using virtualenv")
+        subprocess.check_call([sys.executable, "-m", "pip", "install", "virtualenv"])
+        subprocess.check_call([sys.executable, "-m", "virtualenv", str(path)])
+    if not py.exists():
+        raise RuntimeError(f"venv has no interpreter at {py}")
+    subprocess.check_call([str(py), "-m", "pip", "install", "-q", "--upgrade", "pip"])
+    return py
+
 venv_root = Path("/content/vn_alpr_venvs") if Path("/content").exists() else ROOT / "venvs"
 venv_root.mkdir(parents=True, exist_ok=True)
+# PaddleOCR v3.7.0 tools/train.py imports these. paddleocr itself is the inference package.
+PADDLE_TRAIN = [
+    "shapely", "scikit-image", "pyclipper", "lmdb", "tqdm", "numpy", "rapidfuzz",
+    "opencv-contrib-python", "cython", "Pillow", "pyyaml", "requests",
+    "albumentations", "albucore", "packaging", "paddleocr==3.7.0",
+]
 stacks = {
-    "paddle": ["paddleocr==3.7.0"],
+    "paddle": PADDLE_TRAIN,
     "keras": ["fast-plate-ocr[train]==1.1.0"],
 }
 PYTHON_BINS = {"torch": sys.executable}
 for name, packages in stacks.items():
-    py = venv_root / name / "bin" / "python"
     try:
-        if not py.exists():
-            subprocess.check_call([sys.executable, "-m", "venv", str(venv_root / name)])
-            subprocess.check_call([str(py), "-m", "pip", "install", "-q", "--upgrade", "pip"])
+        py = make_venv(venv_root / name)
         if name == "paddle" and PADDLE_CUDA:
+            gpu_index = f"https://www.paddlepaddle.org.cn/packages/stable/{PADDLE_CUDA}/"
             try:
-                pip_install(str(py), ["paddlepaddle-gpu"], f"https://www.paddlepaddle.org.cn/packages/stable/{PADDLE_CUDA}/")
+                pip_install(str(py), ["paddlepaddle-gpu==3.3.0"], gpu_index)
             except subprocess.CalledProcessError:
-                print("paddle GPU index failed; installing the default paddleocr wheel")
+                print("paddle GPU wheel failed; installing the official CPU wheel")
+                pip_install(str(py), ["paddlepaddle==3.3.0"], "https://www.paddlepaddle.org.cn/packages/stable/cpu/")
         pip_install(str(py), packages)
+        probe = "import paddle, paddleocr" if name == "paddle" else "import fast_plate_ocr"
+        checked = subprocess.run([str(py), "-c", probe], check=False, text=True, capture_output=True)
+        if checked.returncode != 0:
+            tail = (checked.stderr or checked.stdout or "import failed").strip()[-500:]
+            print("install_failed", name, tail)
+            continue
         PYTHON_BINS[name] = str(py)
         print("installed", name, py)
     except subprocess.CalledProcessError as exc:

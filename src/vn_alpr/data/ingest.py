@@ -33,6 +33,13 @@ def _find_image(folder: Path, file_name: str) -> Path | None:
     return matches[0] if len(matches) == 1 else None
 
 
+def _character(name: str) -> str | None:
+    text = str(name).strip()
+    if len(text) == 1 and text.isalnum():
+        return text.upper()
+    return None
+
+
 def samples_from_coco_tree(root: Path, dataset: dict[str, Any]) -> list[dict[str, Any]]:
     samples = []
     seen: set[str] = set()
@@ -45,11 +52,17 @@ def samples_from_coco_tree(root: Path, dataset: dict[str, Any]) -> list[dict[str
             continue
         categories = {item.get("id"): item.get("name", "") for item in document.get("categories", [])}
         boxes: dict[Any, list[dict[str, Any]]] = defaultdict(list)
+        chars: dict[Any, list[dict[str, Any]]] = defaultdict(list)
         texts: dict[Any, str] = {}
         for ann in document.get("annotations", []):
-            boxes[ann.get("image_id")].append(
-                {"name": categories.get(ann.get("category_id"), ""), "bbox": ann.get("bbox")}
-            )
+            name = categories.get(ann.get("category_id"), "")
+            bbox = ann.get("bbox")
+            boxes[ann.get("image_id")].append({"name": name, "bbox": bbox})
+            character = _character(name)
+            if character and isinstance(bbox, list) and len(bbox) >= 4:
+                chars[ann.get("image_id")].append(
+                    {"char": character, "x": bbox[0], "y": bbox[1], "w": bbox[2], "h": bbox[3]}
+                )
             for key in TEXT_KEYS:
                 if ann.get(key):
                     texts[ann.get("image_id")] = str(ann[key])
@@ -84,6 +97,7 @@ def samples_from_coco_tree(root: Path, dataset: dict[str, Any]) -> list[dict[str
                     "country": dataset.get("country"),
                     "role": dataset.get("role"),
                     "boxes": [box for box in boxes.get(image.get("id"), []) if box.get("bbox")],
+                    "char_boxes": chars.get(image.get("id")) or None,
                     "text_raw": texts.get(image.get("id")),
                     "official_test": split_name == "test",
                 }

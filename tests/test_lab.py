@@ -228,6 +228,7 @@ def test_class_map_and_yolo():
     assert class_role("images") == "artifact"
     assert class_role("0") == "artifact"
     assert class_role("license_plate") == "plate"
+    assert class_role("license-plate") == "plate"
     assert class_role("A") == "character"
     parsed = yolo_line_to_xywh("0 0.5 0.5 0.2 0.2", 100, 50)
     assert parsed[0] == 0
@@ -248,6 +249,19 @@ def test_class_map_and_yolo():
     )
     assert len(document["annotations"]) == 1
     assert rejected[0]["reason"] == "artifact"
+    crop, _ = build_detection_coco(
+        [
+            {
+                "sample_id": "crop",
+                "file_name": "crop.jpg",
+                "width": 40,
+                "height": 16,
+                "boxes": [{"name": "A", "bbox": [1, 2, 3, 8]}],
+                "char_boxes": [{"char": "A", "x": 1, "y": 2, "w": 3, "h": 8}],
+            }
+        ]
+    )
+    assert crop["images"] == []
 
 
 def test_synthetic_prepare_is_marked_self_test(tmp_path: Path):
@@ -362,16 +376,49 @@ def test_coco_tree_materializes_rfdetr_layout(tmp_path: Path):
     samples = samples_from_coco_tree(tmp_path / "coco", {"dataset_id": "toy", "role": "primary", "country": "VN", "source_family_id": "toy"})
     assert len(samples) == 2
     assert any(sample.get("text_raw") == "51A12345" for sample in samples)
+    chars_root = tmp_path / "chars" / "train"
+    chars_root.mkdir(parents=True)
+    Image.new("RGB", (40, 16), (255, 255, 255)).save(chars_root / "c.jpg")
+    char_doc = {
+        "images": [{"id": 1, "file_name": "c.jpg", "width": 40, "height": 16}],
+        "annotations": [
+            {"id": 1, "image_id": 1, "category_id": 1, "bbox": [1, 2, 4, 10]},
+            {"id": 2, "image_id": 1, "category_id": 2, "bbox": [8, 2, 4, 10]},
+        ],
+        "categories": [{"id": 1, "name": "5"}, {"id": 2, "name": "1"}],
+    }
+    (chars_root / "_annotations.coco.json").write_text(json.dumps(char_doc), encoding="utf-8")
+    char_samples = samples_from_coco_tree(
+        tmp_path / "chars",
+        {"dataset_id": "chars", "role": "primary", "country": "VN", "source_family_id": "chars"},
+    )
+    assert char_samples[0]["char_boxes"][0]["char"] == "5"
+    assert char_samples[0]["char_boxes"][1]["char"] == "1"
+    manifest = prepare_locked_split(samples + char_samples, tmp_path / "canonical", seed=1, calibration_n=1)
     capped, scope = limit_samples(samples, {"auxiliary": {"max_fraction_of_train": 0.2}, "training": {"max_images": 1}})
     assert scope == "includes_primary"
     assert len(capped) == 1
-    manifest = prepare_locked_split(samples, tmp_path / "canonical", seed=1, calibration_n=1)
+    ocr_lines = (tmp_path / "canonical" / "ocr.jsonl").read_text(encoding="utf-8")
+    assert "51A12345" in ocr_lines
+    assert '"text_raw": "51"' in ocr_lines or '"text_normalized": "51"' in ocr_lines
     image_dirs = materialize_images(samples, manifest, tmp_path / "rfdetr")
     linked = []
     for split in ("train", "val", "test"):
         linked.extend(Path(image_dirs[split]).iterdir())
     assert any(path.is_symlink() for path in linked)
     assert (tmp_path / "canonical" / "instances_train.json").exists()
+
+
+def test_launch_passes_keras_backend(tmp_path: Path):
+    import sys
+
+    from vn_alpr.models.runner import launch_upstream
+
+    script = tmp_path / "show_env.py"
+    script.write_text("import os\nprint(os.environ.get('KERAS_BACKEND', ''))\n", encoding="utf-8")
+    result = launch_upstream([sys.executable, str(script)], tmp_path, tmp_path / "log.txt", env={"KERAS_BACKEND": "tensorflow"})
+    assert result["status"] == "ok"
+    assert "tensorflow" in (tmp_path / "log.txt").read_text(encoding="utf-8")
 
 
 def test_host_latency_timer_and_missing_onnx(tmp_path: Path):

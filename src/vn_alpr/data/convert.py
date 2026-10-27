@@ -31,7 +31,7 @@ def image_size(path: Path) -> tuple[int, int]:
 
 
 def class_role(name: str) -> str:
-    key = name.strip().lower().replace(" ", "_")
+    key = name.strip().lower().replace("-", "_").replace(" ", "_")
     if key in ARTIFACTS:
         return "artifact"
     if key in PLATE_ALIASES:
@@ -79,10 +79,15 @@ def build_detection_coco(
     annotations = []
     rejected = []
     ann_id = 1
-    for index, sample in enumerate(samples, start=1):
+    image_id = 1
+    for sample in samples:
+        plate_boxes = [box for box in sample.get("boxes", []) if class_role(str(box.get("name", ""))) == "plate"]
+        # A character crop has no plate box. Keep it for OCR and leave it out of detection.
+        if not plate_boxes and sample.get("char_boxes"):
+            continue
         images.append(
             {
-                "id": index,
+                "id": image_id,
                 "file_name": sample["file_name"],
                 "width": sample["width"],
                 "height": sample["height"],
@@ -105,7 +110,7 @@ def build_detection_coco(
             annotations.append(
                 {
                     "id": ann_id,
-                    "image_id": index,
+                    "image_id": image_id,
                     "category_id": 1,
                     "bbox": [x, y, w, h],
                     "area": w * h,
@@ -113,6 +118,7 @@ def build_detection_coco(
                 }
             )
             ann_id += 1
+        image_id += 1
     return coco_document(images, annotations), rejected
 
 

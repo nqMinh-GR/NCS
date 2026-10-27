@@ -15,6 +15,9 @@ def test_notebooks_validate():
     assert "DET_BATCH_SIZE" in source
     assert "faster-coco-eval>=1.6.6" in source
     assert "rfdetr[train]==1.11.2" in source
+    assert "paddlepaddle-gpu==3.3.0" in source
+    assert "virtualenv" in source
+    assert "fast-plate-ocr[train]==1.1.0" in source
     assert "OCR_BATCH_SIZE" in source
     assert "host_latency" in source
     assert "LATENCY_ITERATIONS" in source

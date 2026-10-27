@@ -22,7 +22,7 @@ from vn_alpr.reporting import write_summary, write_table
 
 def _stack_ready(model: dict[str, Any], cfg: dict[str, Any]) -> tuple[bool, str]:
     stack = model.get("stack")
-    module = {"torch": "torch", "paddle": "paddleocr", "keras": "fast_plate_ocr"}.get(stack or "")
+    module = {"torch": "torch", "paddle": "paddle", "keras": "fast_plate_ocr"}.get(stack or "")
     if module is None:
         return False, "no runtime"
     python = (cfg.get("python_bins") or {}).get(stack or "")
