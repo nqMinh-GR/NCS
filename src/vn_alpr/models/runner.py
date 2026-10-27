@@ -125,8 +125,15 @@ def attempt(
     if reason == "smoke_self_test_only":
         return {"status": reason, "reason": "smoke synthetic images are not used as a training score"}
     assert layout is not None
-    if model.get("task") == "ocr" and not layout.get("ocr_csv"):
+    lists = layout.get("paddle_lists") or {}
+    if model.get("task") == "ocr" and not lists.get("train_list"):
         return {"status": "ocr_labels_missing", "reason": "split has no plate text for train and val", "accuracy": None}
+    if model.get("family") == "fast_plate_ocr" and not (layout.get("ocr_csv") or {}).get("train"):
+        return {
+            "status": "failed",
+            "reason": "plate text does not fit the CCT alphabet and 10 slots",
+            "accuracy": None,
+        }
     hparams.update(layout)
     work = run_dir / model["model_id"]
     work.mkdir(parents=True, exist_ok=True)
@@ -147,6 +154,7 @@ def attempt(
             failed = _fetch_checkpoint(model, work / "checkpoint.pth")
             if failed:
                 return failed
+    weights_missing = False
     if model["family"] == "fast_plate_ocr":
         for name, url_key in (
             ("pretrained.keras", "checkpoint_url"),
@@ -154,6 +162,9 @@ def attempt(
             ("plate_config.yaml", "plate_config_url"),
         ):
             failed = _fetch_checkpoint({**model, "checkpoint_url": model.get(url_key), "gdrive_id": None}, work / name)
+            if failed and name == "pretrained.keras":
+                weights_missing = True
+                continue
             if failed:
                 return failed
     if model["family"] == "rfdetr":
@@ -180,10 +191,30 @@ def attempt(
     argv = spec.get("train_argv")
     if not argv:
         return {"status": "failed", "reason": "no train command"}
+    if weights_missing and "--weights-path" in argv:
+        index = argv.index("--weights-path")
+        del argv[index : index + 2]
     cwd = work / "upstream" if model["family"] in clone_families else work
     launched = launch_upstream(argv, cwd, work / "train.log", env=spec.get("env"))
-    if launched["status"] == "ok" and spec.get("export_argv"):
-        exported = launch_upstream(spec["export_argv"], cwd, work / "export.log", env=spec.get("env"))
+    export_argv = list(spec.get("export_argv") or [])
+    if launched["status"] == "ok" and model["family"] == "fast_plate_ocr":
+        found = sorted((work / "cct").rglob("best.keras"), key=lambda path: path.stat().st_mtime)
+        if not found or "--model" not in export_argv:
+            launched["export_status"] = "failed"
+            launched["export_reason"] = "best.keras was not written"
+            export_argv = []
+        else:
+            export_argv[export_argv.index("--model") + 1] = str(found[-1])
+    if launched["status"] == "ok" and model["family"] == "openocr_svtrv2":
+        found = sorted((work / "svtr").rglob("*.pth"), key=lambda path: path.stat().st_mtime)
+        if found:
+            export_argv.append(f"Global.checkpoints={found[-1]}")
+        else:
+            export_argv = []
+            launched["export_status"] = "failed"
+            launched["export_reason"] = "no SVTR checkpoint was written"
+    if launched["status"] == "ok" and export_argv:
+        exported = launch_upstream(export_argv, cwd, work / "export.log", env=spec.get("env"))
         launched["export_status"] = exported["status"]
         launched["export_log"] = exported.get("log")
     return launched

@@ -12,12 +12,16 @@ from typing import Any
 from PIL import Image
 
 from vn_alpr.data import catalog_plan, load_datasets
+from vn_alpr.data.convert import class_role
 from vn_alpr.data.download import budget_ok, fetch_url, safe_extract_zip
 from vn_alpr.data.prepare import prepare_locked_split
 from vn_alpr.secrets import redact
+from vn_alpr.textnorm import normalize_plate
 
 TEXT_KEYS = ("plate_text", "text", "transcription")
 SPLIT_FOLDER = {"train": "train", "val": "valid", "test": "test"}
+CCT_ALPHABET = set("0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ")
+CCT_MAX_LEN = 10
 
 
 def _safe_stem(value: str) -> str:
@@ -37,7 +41,35 @@ def _character(name: str) -> str | None:
     text = str(name).strip()
     if len(text) == 1 and text.isalnum():
         return text.upper()
+    # Some exports prefix the glyph, for example char_A or character-5.
+    tail = text.replace("-", "_").split("_")[-1]
+    if tail != text and len(tail) == 1 and tail.isalnum():
+        return tail.upper()
     return None
+
+
+def _plate_string(name: str) -> str | None:
+    """Use a class name as transcription only when it already looks like a plate string."""
+    if class_role(str(name)) != "unknown":
+        return None
+    text = normalize_plate(name)
+    if not (4 <= len(text) <= 12) or not text.isalnum():
+        return None
+    if not any(char.isdigit() for char in text) or not any(char.isalpha() for char in text):
+        return None
+    return text
+
+
+def choose_listed_version(numbers: list[int], pinned: int | None) -> tuple[int | None, str]:
+    """Pick a version the API listed. A missing pin is not replaced by a guessed number."""
+    listed = sorted({int(number) for number in numbers})
+    if pinned is not None:
+        return int(pinned), "pinned"
+    if not listed:
+        return None, "none_listed"
+    if len(listed) == 1:
+        return listed[0], "only_listed"
+    return listed[-1], "highest_listed"
 
 
 def samples_from_coco_tree(root: Path, dataset: dict[str, Any]) -> list[dict[str, Any]]:
@@ -63,6 +95,9 @@ def samples_from_coco_tree(root: Path, dataset: dict[str, Any]) -> list[dict[str
                 chars[ann.get("image_id")].append(
                     {"char": character, "x": bbox[0], "y": bbox[1], "w": bbox[2], "h": bbox[3]}
                 )
+            plate_string = _plate_string(name)
+            if plate_string and ann.get("image_id") not in texts:
+                texts[ann.get("image_id")] = plate_string
             for key in TEXT_KEYS:
                 if ann.get(key):
                     texts[ann.get("image_id")] = str(ann[key])
@@ -158,6 +193,25 @@ def _write_annotations(out_dir: Path, image_dirs: dict[str, str]) -> None:
             (Path(image_dirs[split]) / "_annotations.coco.json").write_text(source.read_text(encoding="utf-8"), encoding="utf-8")
 
 
+def _balance_ocr_splits(
+    train_rows: list[dict[str, Any]],
+    val_rows: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Give both splits at least one existing label. Do not invent text."""
+    if train_rows and val_rows:
+        return train_rows, val_rows
+    pool = list(train_rows) + list(val_rows)
+    if len(pool) < 2:
+        return train_rows, val_rows
+    if not val_rows:
+        return pool[:-1], pool[-1:]
+    return pool[:1], pool[1:]
+
+
+def _fits_cct(text: str) -> bool:
+    return 1 <= len(text) <= CCT_MAX_LEN and all(char in CCT_ALPHABET for char in text)
+
+
 def _ocr_sidecars(out_dir: Path, manifest: dict[str, Any]) -> None:
     path = out_dir / "ocr.jsonl"
     if not path.exists():
@@ -166,35 +220,44 @@ def _ocr_sidecars(out_dir: Path, manifest: dict[str, Any]) -> None:
     usable = [row for row in rows if row.get("text_normalized") and row.get("split") in {"train", "val"} and row.get("image_path")]
     train_rows = [row for row in usable if row["split"] == "train"]
     val_rows = [row for row in usable if row["split"] == "val"]
+    train_rows, val_rows = _balance_ocr_splits(train_rows, val_rows)
     if not train_rows or not val_rows:
         return
     image_root = out_dir / "ocr_images"
     image_root.mkdir(parents=True, exist_ok=True)
     csv_paths = {}
     list_paths = {}
+    cct_counts = {}
     for split, chosen in (("train", train_rows), ("val", val_rows)):
         csv_path = out_dir / f"{split}.csv"
         list_path = out_dir / f"{split}_list.txt"
         csv_lines = ["image_path,plate_text"]
         list_lines = []
+        cct_rows = 0
         for index, row in enumerate(chosen):
             source = Path(row["image_path"])
             target = image_root / f"{split}_{index}{source.suffix.lower() or '.jpg'}"
             if not target.exists():
                 os.symlink(source.resolve(), target)
             text = str(row["text_normalized"]).replace(",", "")
-            csv_lines.append(f"{target},{text}")
             list_lines.append(f"{target.name}\t{text}")
+            if _fits_cct(text):
+                csv_lines.append(f"{target},{text}")
+                cct_rows += 1
         csv_path.write_text("\n".join(csv_lines) + "\n", encoding="utf-8")
         list_path.write_text("\n".join(list_lines) + "\n", encoding="utf-8")
-        csv_paths[split] = str(csv_path)
+        if cct_rows:
+            csv_paths[split] = str(csv_path)
         list_paths[split] = str(list_path)
-    manifest["ocr_csv"] = csv_paths
+        cct_counts[split] = cct_rows
+    if csv_paths.get("train") and csv_paths.get("val"):
+        manifest["ocr_csv"] = csv_paths
     manifest["paddle_lists"] = {
         "train_dir": str(image_root),
         "train_list": list_paths["train"],
         "val_list": list_paths["val"],
     }
+    manifest["ocr_counts"] = {"train": len(train_rows), "val": len(val_rows), "cct": cct_counts}
 
 
 def download_hf_zips(dataset: dict[str, Any], dest: Path, max_gb: float) -> dict[str, Any]:
@@ -232,24 +295,55 @@ def download_roboflow_coco(dataset: dict[str, Any], api_key: str, dest: Path) ->
             number = getattr(version, "version", None) or getattr(version, "version_number", None)
             if number is not None:
                 numbers.append(int(number))
-        pinned = dataset.get("version")
+        pinned, how = choose_listed_version(numbers, dataset.get("version"))
         if pinned is None:
-            if len(numbers) != 1:
-                return {
-                    "dataset_id": dataset["dataset_id"],
-                    "status": "versions_listed",
-                    "versions": numbers,
-                    "downloaded": False,
-                }
-            pinned = numbers[0]
+            return {
+                "dataset_id": dataset["dataset_id"],
+                "status": "versions_listed",
+                "versions": numbers,
+                "downloaded": False,
+            }
         dest.mkdir(parents=True, exist_ok=True)
+        if _coco_cached(dest):
+            return {
+                "dataset_id": dataset["dataset_id"],
+                "status": "downloaded",
+                "version": "cached",
+                "downloaded": True,
+            }
         project.version(int(pinned)).download("coco", location=str(dest), overwrite=True)
     except Exception as exc:  # noqa: BLE001
         message = redact(str(exc))
         if api_key and api_key in message:
             message = message.replace(api_key, "[REDACTED]")
         return {"dataset_id": dataset["dataset_id"], "status": "failed_api", "reason": message, "downloaded": False}
-    return {"dataset_id": dataset["dataset_id"], "status": "downloaded", "version": int(pinned), "downloaded": True}
+    return {
+        "dataset_id": dataset["dataset_id"],
+        "status": "downloaded",
+        "version": int(pinned),
+        "version_choice": how,
+        "downloaded": True,
+    }
+
+
+def _coco_cached(dest: Path) -> bool:
+    if not dest.exists():
+        return False
+    for path in dest.rglob("*.json"):
+        if not path.is_file():
+            continue
+        head = path.read_text(encoding="utf-8", errors="ignore")[:4000]
+        if '"images"' in head and '"annotations"' in head:
+            return True
+    return False
+
+
+def _download_rank(dataset: dict[str, Any]) -> tuple[int, str]:
+    tasks = set(dataset.get("tasks_available") or [])
+    # Character and OCR sets have to land before the download budget is spent on detection.
+    if tasks & {"ocr", "character_detection"}:
+        return 0, dataset["dataset_id"]
+    return 1, dataset["dataset_id"]
 
 
 def prepare_training_data(
@@ -263,9 +357,9 @@ def prepare_training_data(
     statuses = []
     samples: list[dict[str, Any]] = []
     max_gb = float(cfg["max_download_gb"])
-    for dataset in load_datasets():
-        if dataset["dataset_id"] not in selected:
-            continue
+    datasets = [dataset for dataset in load_datasets() if dataset["dataset_id"] in selected]
+    datasets.sort(key=_download_rank)
+    for dataset in datasets:
         dest = raw_dir / dataset["dataset_id"]
         method = dataset.get("download_method")
         status: dict[str, Any]
@@ -306,6 +400,7 @@ def prepare_training_data(
         "downloads": statuses,
         "counts": manifest["counts"],
         "score_scope": scope,
-        "ocr": bool(manifest.get("ocr_csv")),
+        "ocr": bool((manifest.get("paddle_lists") or {}).get("train_list")),
+        "ocr_counts": manifest.get("ocr_counts"),
         "manifest": str(out_dir / "split_manifest.json"),
     }

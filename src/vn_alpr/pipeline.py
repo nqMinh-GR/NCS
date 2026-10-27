@@ -62,6 +62,7 @@ def run_profile(
         return {"status": "not_started", "profile": cfg["profile"], "run_dir": str(run_dir)}
 
     run_dir.mkdir(parents=True, exist_ok=True)
+    already_trained = _already_trained(run_dir)
     from vn_alpr.models.runner import find_layout
 
     layout = find_layout(run_dir)
@@ -92,6 +93,9 @@ def run_profile(
             commands[model_id] = {key: value for key, value in spec.items() if key != "script"}
             if not ready:
                 rows.append(_row(model_id, "dependency_missing", ready_reason, hardware, hparams, kind))
+                continue
+            if model_id in already_trained:
+                rows.append(_row(model_id, "ok", f"already trained: {already_trained[model_id]}", hardware, hparams, kind))
                 continue
             from vn_alpr.models.runner import attempt
 
@@ -150,6 +154,26 @@ def run_profile(
     }
     (run_dir / "execution_report.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
     return report
+
+
+def _already_trained(run_dir: Path) -> dict[str, str]:
+    """Keep a previous successful train. Models that were skipped or failed are launched again."""
+    path = run_dir / "execution_report.json"
+    if not path.is_file():
+        return {}
+    try:
+        report = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return {}
+    found = {}
+    for row in report.get("rows") or []:
+        model_id = row.get("model_id")
+        if row.get("status") != "ok" or not model_id:
+            continue
+        log = run_dir / str(model_id) / "train.log"
+        if log.is_file() and log.stat().st_size > 0:
+            found[str(model_id)] = str(log)
+    return found
 
 
 def _task(row: dict[str, Any], catalog: dict[str, dict[str, Any]]) -> str:

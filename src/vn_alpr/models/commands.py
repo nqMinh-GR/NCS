@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 
@@ -217,6 +218,9 @@ def paddle_commands(model: dict[str, Any], run_dir: Path, epochs: int, hparams: 
         f"Eval.loader.batch_size_per_card={batch}",
         f"Train.loader.num_workers={workers}",
         f"Eval.loader.num_workers={workers}",
+        "Global.distributed=False",
+        "Train.loader.drop_last=False",
+        "Eval.loader.drop_last=False",
     ]
     if learning_rate is not None:
         options.append(f"Optimizer.lr.learning_rate={learning_rate}")
@@ -315,14 +319,104 @@ def cct_commands(model: dict[str, Any], run_dir: Path, epochs: int, hparams: dic
     }
 
 
-def svtr_commands(model: dict[str, Any], repo: Path, checkpoint: Path | None, epochs: int) -> dict[str, Any]:
-    config = repo / model["config"]
-    opt = [f"Global.epoch_num={epochs}"]
-    if checkpoint:
-        opt.append(f"Global.pretrained_model={checkpoint}")
-    train = ["python", "tools/train_rec.py", "-c", str(config), "-o", *opt]
-    export = ["python", "tools/export_rec.py", "-c", str(config), "--type", "onnx", "-o", *opt]
-    return {"train_argv": train, "export_argv": export, "decoder": "CTC", "manual_checkpoint": checkpoint is None}
+SVTR_TRAIN = '''"""Train SVTRv2 from the Apache-2.0 architecture. Pretrained Drive weights are not loaded."""
+import sys
+from pathlib import Path
+
+import yaml
+
+
+def main() -> int:
+    repo = Path.cwd()
+    sys.path.insert(0, str(repo))
+    source = repo / sys.argv[1]
+    dest = Path(sys.argv[2])
+    spec = yaml.safe_load(Path(sys.argv[3]).read_text(encoding="utf-8"))
+    train_list = spec.get("train_list")
+    val_list = spec.get("val_list")
+    if not train_list or not val_list:
+        raise SystemExit("OCR label lists are missing")
+    cfg = yaml.safe_load(source.read_text(encoding="utf-8"))
+    for split, list_key in (("Train", "train_list"), ("Eval", "val_list")):
+        dataset = cfg[split]["dataset"]
+        dataset["name"] = "SimpleDataSet"
+        dataset["data_dir"] = spec["data_dir"]
+        dataset["label_file_list"] = [spec[list_key]]
+        dataset.pop("data_dir_list", None)
+        cfg[split].pop("sampler", None)
+        loader = cfg[split]["loader"]
+        loader["batch_size_per_card"] = int(spec["batch"])
+        loader["num_workers"] = int(spec["workers"])
+        loader["drop_last"] = False
+    cfg["Global"]["epoch_num"] = int(spec["epochs"])
+    cfg["Global"]["device"] = "gpu" if spec.get("use_gpu") else "cpu"
+    cfg["Global"]["use_amp"] = bool(spec.get("use_gpu"))
+    cfg["Global"]["pretrained_model"] = None
+    cfg["Global"]["checkpoints"] = None
+    cfg["Global"]["use_tensorboard"] = False
+    cfg["Global"]["output_dir"] = spec["output_dir"]
+    if spec.get("learning_rate") is not None:
+        cfg["Optimizer"]["lr"] = float(spec["learning_rate"])
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_text(yaml.safe_dump(cfg, sort_keys=False), encoding="utf-8")
+    from tools.engine.config import Config
+    from tools.engine.trainer import Trainer
+
+    Trainer(Config(str(dest)), mode="train_eval", task="rec").train()
+    print("svtr_trained", dest)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+'''
+
+
+def svtr_commands(
+    model: dict[str, Any],
+    run_dir: Path,
+    epochs: int,
+    hparams: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    lists = (hparams or {}).get("paddle_lists") or {}
+    batch = int(_value(hparams, "ocr_batch_size", 16))
+    workers = int(_value(hparams, "num_workers", 2))
+    job = {
+        "train_list": lists.get("train_list"),
+        "val_list": lists.get("val_list"),
+        "data_dir": lists.get("train_dir") or ".",
+        "batch": batch,
+        "workers": workers,
+        "epochs": epochs,
+        "use_gpu": bool(_value(hparams, "use_gpu", False)),
+        "learning_rate": _value(hparams, "learning_rate", None),
+        "output_dir": str(run_dir / "svtr"),
+    }
+    script_path = run_dir / "train_svtr.py"
+    job_path = run_dir / "svtr_job.json"
+    config_out = run_dir / "svtr.yml"
+    script_path.write_text(SVTR_TRAIN, encoding="utf-8")
+    job_path.write_text(json.dumps(job), encoding="utf-8")
+    python = interpreter(hparams, "torch")
+    train = [python, str(script_path), model["config"], str(config_out), str(job_path)]
+    export = [
+        python,
+        "tools/export_rec.py",
+        "-c",
+        str(config_out),
+        "--type",
+        "onnx",
+        "-o",
+        f"Global.output_dir={run_dir / 'svtr'}",
+    ]
+    return {
+        "train_argv": train,
+        "export_argv": export,
+        "script": SVTR_TRAIN,
+        "decoder": "CTC",
+        "manual_checkpoint": True,
+        "batch_size": batch,
+    }
 
 
 def commands_for(
@@ -370,7 +464,7 @@ def commands_for(
         spec["export_argv"] = _bind_python(spec["export_argv"], interpreter(hparams, "keras"))
         return spec
     if family == "openocr_svtrv2":
-        return svtr_commands(model, Path("OpenOCR"), None, epochs)
+        return svtr_commands(model, run_dir, epochs, hparams)
     if family == "deimv2":
         raise ValueError("DEIMv2 is restricted and has no train command")
     raise KeyError(family)

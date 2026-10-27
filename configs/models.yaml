@@ -571,7 +571,8 @@ models:
     weights_license: unresolved
     pretraining_data: Union14M-L-Filter
     commercial_status: unresolved
-    reason: "Code is Apache-2.0. The readme links a Drive folder, not a file id or a weights license, and the training data terms were not cleared. Adapter accepts a manual checkpoint and does not guess a file id."
+    train_from_scratch: true
+    reason: "Code is Apache-2.0. The readme links a Drive folder, not a file id or a weights license. Those weights are not downloaded. Training starts from the architecture on this lab's labels."
     train_status: implemented_upstream
     export_status: "tools/export_rec.py --type onnx"
     qat_status: unsupported_qat
@@ -596,7 +597,8 @@ models:
     code_license: Apache-2.0
     weights_license: unresolved
     commercial_status: unresolved
-    reason: "Same as svtrv2_t: folder link only, weights license unresolved."
+    train_from_scratch: true
+    reason: "Same as svtrv2_t: Drive folder is not downloaded. Training starts from the Apache-2.0 architecture."
     train_status: implemented_upstream
     export_status: "tools/export_rec.py --type onnx"
     qat_status: unsupported_qat

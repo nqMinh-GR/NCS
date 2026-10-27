@@ -198,9 +198,17 @@ loss_distill: 5
         commands_for(models["dfine_n"], root / "df2", 1, hparams={"det_batch_size": 2, "num_workers": 0})["train_argv"]
     )
     assert "--format" in cct["export_argv"] and "onnx" in cct["export_argv"]
-    svtr = commands_for(models["svtrv2_t"], root / "sv", 1)
-    assert "tools/train_rec.py" in svtr["train_argv"]
+    svtr = commands_for(
+        models["svtrv2_t"],
+        root / "sv",
+        1,
+        hparams={"paddle_lists": {"train_dir": "/data", "train_list": "/data/train.txt", "val_list": "/data/val.txt"}, "ocr_batch_size": 8, "use_gpu": True},
+    )
+    assert "train_svtr.py" in " ".join(svtr["train_argv"])
     assert "svtrv2_tiny_rctc.yml" in " ".join(svtr["train_argv"])
+    assert "SimpleDataSet" in svtr["script"]
+    assert "drive.google.com" not in svtr["script"]
+    assert '["pretrained_model"] = None' in svtr["script"]
     assert svtr["manual_checkpoint"] is True
 
 
@@ -209,7 +217,9 @@ def test_commercial_filter_and_config_schema():
     models = by_id(load_models())
     assert selection_reason(models["deimv2"], cfg)[0] is False
     assert selection_reason(models["rfdetr_xlarge"], cfg)[0] is False
-    assert selection_reason(models["svtrv2_t"], cfg)[0] is False
+    selected, why = selection_reason(models["svtrv2_t"], cfg)
+    assert selected is True
+    assert why == "train_from_scratch_no_pretrained_weights"
     assert selection_reason(models["rfdetr_small"], cfg)[0] is True
     assert selection_reason(models["ppocrv6_tiny"], cfg)[0] is True
     plan = {row["dataset_id"]: row for row in catalog_plan(True)}
@@ -396,6 +406,16 @@ def test_coco_tree_materializes_rfdetr_layout(tmp_path: Path):
     )
     assert char_samples[0]["char_boxes"][0]["char"] == "5"
     assert char_samples[0]["char_boxes"][1]["char"] == "1"
+    from vn_alpr.data.ingest import _balance_ocr_splits, _character, _plate_string, choose_listed_version
+
+    assert _character("char_A") == "A"
+    assert _plate_string("51A12345") == "51A12345"
+    assert _plate_string("motorcycle") is None
+    assert choose_listed_version([1, 3, 2], None) == (3, "highest_listed")
+    assert choose_listed_version([4], None) == (4, "only_listed")
+    assert choose_listed_version([1, 2], 1) == (1, "pinned")
+    held_train, held_val = _balance_ocr_splits([{"text": "A"}, {"text": "B"}], [])
+    assert held_train and held_val
     manifest = prepare_locked_split(samples + char_samples, tmp_path / "canonical", seed=1, calibration_n=1)
     capped, scope = limit_samples(samples, {"auxiliary": {"max_fraction_of_train": 0.2}, "training": {"max_images": 1}})
     assert scope == "includes_primary"
@@ -500,3 +520,23 @@ def test_onnx_latency_uses_real_samples(tmp_path: Path):
     assert rows[0]["benchmark_on_target"] is False
     assert rows[0]["backend"] in {"CPUExecutionProvider", "CUDAExecutionProvider"}
     assert rows[0]["n"] == 4
+
+
+def test_already_trained_keeps_only_ok_logs(tmp_path: Path):
+    from vn_alpr.pipeline import _already_trained
+
+    run = tmp_path / "runs"
+    (run / "rfdetr_small").mkdir(parents=True)
+    (run / "ppocrv6_tiny").mkdir()
+    (run / "rfdetr_small" / "train.log").write_text("done", encoding="utf-8")
+    (run / "ppocrv6_tiny" / "train.log").write_text("missing labels", encoding="utf-8")
+    report = {
+        "rows": [
+            {"model_id": "rfdetr_small", "status": "ok"},
+            {"model_id": "ppocrv6_tiny", "status": "ocr_labels_missing"},
+            {"model_id": "cct_s_v2", "status": "ok"},
+        ]
+    }
+    (run / "execution_report.json").write_text(json.dumps(report), encoding="utf-8")
+    found = _already_trained(run)
+    assert set(found) == {"rfdetr_small"}

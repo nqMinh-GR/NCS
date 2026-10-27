@@ -121,7 +121,7 @@ PADDLE_CUDA = "cu126"  # None = wheel mặc định. Nếu index GPU lỗi, ô c
 ## 3. Cài môi trường
 
 PyTorch dùng sẵn trên Colab, kèm RF-DETR. Ô này cũng cài dependency của RT-DETRv4 và D-FINE, trong đó có `faster-coco-eval`. Thiếu package đó thì `train.py` chết ngay lúc import, trước khi GPU nhận model, nên không có đợt tràn VRAM.
-Không cài lại `torch` hay `torchvision` từ pip, để giữ bản CUDA của Colab. Paddle và Keras nằm ở hai venv riêng. Colab thường không có `ensurepip`, nên ô này dùng `virtualenv` khi `venv` tạo thất bại. Paddle GPU được ghim `paddlepaddle-gpu==3.3.0` từ index `cu126` vì bản đó có wheel Python 3.13. Một stack cài lỗi thì stack đó bị ghi `dependency_missing` và các stack khác vẫn chạy.
+Không cài lại `torch` hay `torchvision` từ pip, để giữ bản CUDA của Colab. Paddle và Keras nằm ở hai venv riêng. Colab thường không có `ensurepip`, nên ô này dùng `virtualenv` khi `venv` tạo thất bại. Paddle GPU được ghim `paddlepaddle-gpu==3.3.0` từ index `cu126` vì bản đó có wheel Python 3.13. Keras được ghim `tensorflow==2.21.0`, vì bản đó có wheel Python 3.13. Paddle hoặc Keras cài thất bại thì ô này dừng, không bỏ qua stack đó.
 """),
         code("""
 import subprocess, sys
@@ -136,14 +136,12 @@ def pip_install(python, packages, index=None):
     if completed.returncode != 0:
         raise subprocess.CalledProcessError(completed.returncode, cmd)
 
-try:
-    pip_install(sys.executable, [
-        "PyYAML", "Pillow", "numpy", "roboflow",
-        "rfdetr[train]==1.11.2", "onnx==1.23.2",
-        "faster-coco-eval>=1.6.6", "tensorboard", "scipy", "calflops", "transformers", "loguru",
-    ])
-except subprocess.CalledProcessError as exc:
-    print("install_failed", "torch", exc.returncode)
+pip_install(sys.executable, [
+    "PyYAML", "Pillow", "numpy", "roboflow",
+    "rfdetr[train]==1.11.2", "onnx==1.23.2",
+    "faster-coco-eval>=1.6.6", "tensorboard", "scipy", "calflops", "transformers", "loguru",
+    "lmdb", "pyclipper", "rapidfuzz", "regex",
+])
 
 ort_package = "onnxruntime==1.31.0"
 try:
@@ -189,11 +187,29 @@ PADDLE_TRAIN = [
     "opencv-contrib-python", "cython", "Pillow", "pyyaml", "requests",
     "albumentations", "albucore", "packaging", "paddleocr==3.7.0",
 ]
+def install_keras(py):
+    pip_install(str(py), ["fast-plate-ocr==1.1.0"])
+    try:
+        pip_install(str(py), ["tensorflow==2.21.0"])
+    except subprocess.CalledProcessError:
+        print("tensorflow GPU wheel failed; installing tensorflow-cpu==2.21.0")
+        pip_install(str(py), ["tensorflow-cpu==2.21.0"])
+    try:
+        pip_install(str(py), ["fast-plate-ocr[train]==1.1.0"])
+    except subprocess.CalledProcessError:
+        print("keras train extra failed; installing the Linux train packages without coremltools")
+        pip_install(str(py), [
+            "keras>=3.10,<4", "albumentations", "click", "pandas",
+            "pydantic>=2.5.2,<3", "scikit-learn", "tensorboard",
+            "matplotlib", "tf2onnx", "onnxslim>=0.1.56",
+        ])
+
 stacks = {
     "paddle": PADDLE_TRAIN,
-    "keras": ["fast-plate-ocr[train]==1.1.0"],
+    "keras": [],
 }
 PYTHON_BINS = {"torch": sys.executable}
+failed = []
 for name, packages in stacks.items():
     try:
         py = make_venv(venv_root / name)
@@ -204,18 +220,25 @@ for name, packages in stacks.items():
             except subprocess.CalledProcessError:
                 print("paddle GPU wheel failed; installing the official CPU wheel")
                 pip_install(str(py), ["paddlepaddle==3.3.0"], "https://www.paddlepaddle.org.cn/packages/stable/cpu/")
-        pip_install(str(py), packages)
-        probe = "import paddle, paddleocr" if name == "paddle" else "import fast_plate_ocr"
+        if name == "keras":
+            install_keras(py)
+        else:
+            pip_install(str(py), packages)
+        probe = "import paddle, paddleocr" if name == "paddle" else "import fast_plate_ocr, keras, tensorflow; import fast_plate_ocr.cli.train"
         checked = subprocess.run([str(py), "-c", probe], check=False, text=True, capture_output=True)
         if checked.returncode != 0:
             tail = (checked.stderr or checked.stdout or "import failed").strip()[-500:]
             print("install_failed", name, tail)
+            failed.append(name)
             continue
         PYTHON_BINS[name] = str(py)
         print("installed", name, py)
     except subprocess.CalledProcessError as exc:
         print("install_failed", name, exc.returncode)
+        failed.append(name)
 print(PYTHON_BINS)
+if failed:
+    raise RuntimeError("required OCR stacks were not installed: " + ", ".join(failed))
 """),
         md("""
 ## 4. Credential
@@ -305,8 +328,9 @@ print(hw["role"], hw["machine"], "on_target", hw["benchmark_on_target"])
 ## 6. Tải dữ liệu và khóa split
 
 Bộ Hugging Face `keremberke/license-plate-object-detection` là dữ liệu nhiều nước, vai trò phụ. Nếu không có bộ biển Việt Nam kèm theo, manifest ghi `mixed_auxiliary_not_vn_leaderboard`.
-Roboflow chỉ tải khi có key và API trả về đúng một version. Nhiều version thì in danh sách, không tự chọn.
-Ảnh synthetic không được đưa vào split này.
+Roboflow tải khi có key. API liệt kê một version thì dùng version đó. API liệt kê nhiều version thì tải **số cao nhất trong danh sách API trả về** và ghi `version_choice=highest_listed`. Không bịa một số version chưa xuất hiện trong danh sách.
+Bộ có chữ hoặc ký tự được tải trước bộ detection. Một class một ký tự được ghép thành chuỗi. Một class đã là chuỗi biển, có cả chữ và số, được giữ nguyên. Không suy ra chữ từ ảnh detection.
+Ảnh synthetic không được đưa vào split này. Không có chữ cho cả train và val thì ô này dừng.
 """),
         code("""
 import json
@@ -325,13 +349,15 @@ except Exception as exc:
     data_report = {"status": "failed", "downloads": [], "counts": {}}
 print(json.dumps({k: v for k, v in data_report.items() if k != "downloads"}, indent=2, ensure_ascii=False))
 for row in data_report.get("downloads", []):
-    print(row.get("dataset_id"), row.get("status"), row.get("reason", ""))
+    print(row.get("dataset_id"), row.get("status"), row.get("version"), row.get("version_choice", ""), row.get("reason", ""))
+if data_report.get("status") != "prepared" or not data_report.get("ocr"):
+    raise RuntimeError("OCR không có chữ biển cho cả train và val. Xem status tải ở trên. Không suy diễn transcription.")
 """),
         md("""
 ## 7. Fine-tune và ghi leaderboard
 
-Detector COCO được fine-tune trên split vừa khóa. OCR chỉ train khi split có chữ biển cho cả train và val; không có chữ thì trạng thái là `ocr_labels_missing`.
-Một model lỗi không dừng các model còn lại. Không có số accuracy bịa. `train_executed` chỉ true khi một process train trả về mã 0.
+Detector COCO được fine-tune trên split vừa khóa. OCR train trên cùng chữ biển: PP-OCRv6, CCT, và SVTRv2 từ đầu bằng code Apache-2.0. Weight SVTR trên Drive không được tải.
+Model nào đã có `train.log` và trạng thái `ok` trong lần chạy trước thì không train lại. Model còn lại phải train. Ô này dừng nếu còn model không `ok`. Không có số accuracy bịa.
 """),
         code("""
 from vn_alpr.pipeline import run_profile
@@ -351,13 +377,17 @@ def log_tail(reason, limit=40):
     print("\\n".join(lines[-limit:]))
 
 print(report["status"], "train_executed", report["train_executed"], "edge_executed", report["edge_executed"])
+pending = []
 for row in report["rows"]:
     print(row["model_id"], row["status"], row["batch"], row["reason"])
-    if row["status"] == "failed":
+    if row["status"] != "ok":
+        pending.append(row["model_id"] + "=" + row["status"])
         log_tail(row["reason"])
 print("--- host latency (not Jetson) ---")
 for row in report.get("host_latency") or []:
     print(row["model_id"], row["status"], row.get("backend"), "batch", row.get("batch"), "p50_ms", row.get("p50_ms"), "p95_ms", row.get("p95_ms"))
+if report.get("status") != "implemented" or pending:
+    raise RuntimeError("models that did not train: " + ", ".join(pending or ["run_failed"]))
 """),
         md("""
 ## 8. Latency máy train

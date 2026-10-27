@@ -29,10 +29,13 @@ def selection_reason(model: dict[str, Any], cfg: dict[str, Any]) -> tuple[bool, 
         return False, "optional_disabled"
     if not model.get("enabled", False):
         return False, "disabled"
-    if cfg.get("commercial_only") and model.get("commercial_status") != "eligible":
+    scratch = model.get("commercial_status") == "unresolved" and model.get("train_from_scratch")
+    if cfg.get("commercial_only") and model.get("commercial_status") != "eligible" and not scratch:
         return False, f"commercial_status={model.get('commercial_status')}"
-    if model.get("commercial_status") == "unresolved" and not cfg.get("allow_unverified_weights"):
+    if model.get("commercial_status") == "unresolved" and not cfg.get("allow_unverified_weights") and not scratch:
         return False, "weights_unresolved"
+    if scratch:
+        return True, "train_from_scratch_no_pretrained_weights"
     return True, "selected"
 
 

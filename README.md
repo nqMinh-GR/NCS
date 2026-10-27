@@ -44,7 +44,7 @@ python3 -m venv --system-site-packages .venv
 ## Model mặc định
 
 Detector screen: `rtdetrv4_s`, `rfdetr_small`, `dfine_n`, `dfine_s`.
-OCR screen đủ điều kiện thương mại trong config hiện tại: `ppocrv6_tiny`, `cct_s_v2`. `svtrv2_t` có adapter nhưng weights chưa được cấp quyền rõ, nên `commercial_only` bỏ qua.
+OCR screen: `ppocrv6_tiny`, `cct_s_v2`, `svtrv2_t`. SVTRv2 dùng code Apache-2.0 và train từ đầu. Weight trên Google Drive không có file id và không có license weight, nên không được tải.
 
 DEIMv2 và RF-DETR XL/2XL không được train. Checkpoint Objects365 của D-FINE không được tải. RF-DETR không đi qua Ultralytics. Nano của RF-DETR trong bảng upstream là khoảng 30,5 triệu tham số, không phải model nhỏ hơn D-FINE-N.
 
