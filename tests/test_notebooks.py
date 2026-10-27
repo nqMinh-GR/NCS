@@ -19,6 +19,7 @@ def test_notebooks_validate():
     assert "virtualenv" in source
     assert "fast-plate-ocr[train]==1.1.0" in source
     assert "tensorflow==2.21.0" in source
+    assert "keras_onnxruntime" in source
     assert "highest_listed" in source
     assert "OCR_BATCH_SIZE" in source
     assert "host_latency" in source

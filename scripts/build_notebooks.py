@@ -121,7 +121,7 @@ PADDLE_CUDA = "cu126"  # None = wheel mặc định. Nếu index GPU lỗi, ô c
 ## 3. Cài môi trường
 
 PyTorch dùng sẵn trên Colab, kèm RF-DETR. Ô này cũng cài dependency của RT-DETRv4 và D-FINE, trong đó có `faster-coco-eval`. Thiếu package đó thì `train.py` chết ngay lúc import, trước khi GPU nhận model, nên không có đợt tràn VRAM.
-Không cài lại `torch` hay `torchvision` từ pip, để giữ bản CUDA của Colab. Paddle và Keras nằm ở hai venv riêng. Colab thường không có `ensurepip`, nên ô này dùng `virtualenv` khi `venv` tạo thất bại. Paddle GPU được ghim `paddlepaddle-gpu==3.3.0` từ index `cu126` vì bản đó có wheel Python 3.13. Keras được ghim `tensorflow==2.21.0`, vì bản đó có wheel Python 3.13. Paddle hoặc Keras cài thất bại thì ô này dừng, không bỏ qua stack đó.
+Không cài lại `torch` hay `torchvision` từ pip, để giữ bản CUDA của Colab. Paddle và Keras nằm ở hai venv riêng. Colab thường không có `ensurepip`, nên ô này dùng `virtualenv` khi `venv` tạo thất bại. Paddle GPU được ghim `paddlepaddle-gpu==3.3.0` từ index `cu126` vì bản đó có wheel Python 3.13. Keras được ghim `tensorflow==2.21.0`, vì bản đó có wheel Python 3.13. Venv Keras còn cài `onnxruntime==1.31.0` bản CPU: `fast-plate-ocr` import `LicensePlateRecognizer` ngay khi nạp package và báo lỗi nếu thiếu ONNX Runtime. Bản CPU tránh đụng thư viện CUDA của TensorFlow trong cùng venv. Paddle hoặc Keras cài thất bại thì ô này dừng, không bỏ qua stack đó.
 """),
         code("""
 import subprocess, sys
@@ -203,6 +203,9 @@ def install_keras(py):
             "pydantic>=2.5.2,<3", "scikit-learn", "tensorboard",
             "matplotlib", "tf2onnx", "onnxslim>=0.1.56",
         ])
+    # Package import loads LicensePlateRecognizer, which requires onnxruntime.
+    pip_install(str(py), ["onnxruntime==1.31.0"])
+    print("keras_onnxruntime", "onnxruntime==1.31.0")
 
 stacks = {
     "paddle": PADDLE_TRAIN,
