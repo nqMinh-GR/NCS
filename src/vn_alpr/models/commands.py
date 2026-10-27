@@ -55,7 +55,12 @@ def student_yaml(official_text: str, epochs: int, epoch_key: str = "epoches") ->
     if "teacher_model:" in text:
         raise RuntimeError("teacher_model block was not removed")
     text += f"\n{epoch_key}: {epochs}\n"
-    text += "remap_mscoco_category: False\nnum_classes: 1\n"
+    # COCO category id 1 is the only plate class. The upstream MSCOCO table maps
+    # that id to label 0, which is the only valid index when num_classes is 1.
+    text += "remap_mscoco_category: True\nnum_classes: 1\n"
+    # The cached sine embedding is a CPU attribute, not a buffer, so an eval
+    # forward adds it to a CUDA feature. null rebuilds it on the feature device.
+    text += "eval_spatial_size: null\n"
     return text
 
 
@@ -134,7 +139,8 @@ def rtdetr_family_commands(
             ("optimizer.lr", learning_rate),
             (epoch_key, epochs),
             ("num_classes", 1),
-            ("remap_mscoco_category", False),
+            ("remap_mscoco_category", True),
+            ("eval_spatial_size", "null"),
         ]
     )
     train = [

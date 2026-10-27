@@ -175,6 +175,9 @@ loss_distill: 5
     assert "obj365" not in " ".join(dfine["train_argv"])
     assert "epochs=1" in dfine["train_argv"]
     assert "epoches=1" not in dfine["train_argv"]
+    assert "remap_mscoco_category=True" in dfine["train_argv"]
+    assert "eval_spatial_size=null" in dfine["train_argv"]
+    assert "num_classes=1" in dfine["train_argv"]
     assert dfine["train_argv"][dfine["train_argv"].index("-c") + 1].endswith(
         "upstream/configs/dfine/vn_alpr_finetune.yml"
     )
