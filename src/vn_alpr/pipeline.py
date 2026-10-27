@@ -85,6 +85,7 @@ def run_profile(
                 continue
             ok, reason = selection_reason(model, cfg)
             if not ok:
+                print(f"--- {model_id} skipped: {reason} ---", flush=True)
                 rows.append(_row(model_id, "skipped", reason, hardware, hparams, kind))
                 continue
             ready, ready_reason = _stack_ready(model, cfg)
@@ -92,14 +93,18 @@ def run_profile(
             spec = commands_for(model, run_dir / model_id, epochs, cfg["seed"], hparams)
             commands[model_id] = {key: value for key, value in spec.items() if key != "script"}
             if not ready:
+                print(f"--- {model_id} not ready: {ready_reason} ---", flush=True)
                 rows.append(_row(model_id, "dependency_missing", ready_reason, hardware, hparams, kind))
                 continue
             if model_id in already_trained:
+                print(f"--- {model_id} already trained ---", flush=True)
                 rows.append(_row(model_id, "ok", f"already trained: {already_trained[model_id]}", hardware, hparams, kind))
                 continue
             from vn_alpr.models.runner import attempt
 
+            print(f"--- train {model_id} epochs={epochs} ---", flush=True)
             launched = attempt(model, run_dir, epochs, cfg["seed"], cfg["profile"], hparams)
+            print(f"--- {model_id} status={launched['status']} ---", flush=True)
             rows.append(_row(model_id, launched["status"], launched.get("reason") or launched.get("log"), hardware, hparams, kind))
 
     self_test = None

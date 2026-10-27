@@ -537,6 +537,25 @@ def test_launch_passes_keras_backend(tmp_path: Path):
     assert "tensorflow" in (tmp_path / "log.txt").read_text(encoding="utf-8")
 
 
+def test_launch_prints_each_epoch_line(tmp_path: Path, capsys):
+    import sys
+
+    from vn_alpr.models.runner import launch_upstream
+
+    script = tmp_path / "epochs.py"
+    script.write_text(
+        "import sys\nprint('epoch 1', flush=True)\nprint('epoch 2', flush=True)\nsys.stderr.write('warn\\n')\n",
+        encoding="utf-8",
+    )
+    result = launch_upstream([sys.executable, str(script)], tmp_path, tmp_path / "train.log")
+    assert result["status"] == "ok"
+    log = (tmp_path / "train.log").read_text(encoding="utf-8")
+    assert log.index("epoch 1") < log.index("epoch 2")
+    assert "warn" in log
+    printed = capsys.readouterr().out
+    assert "epoch 1" in printed and "epoch 2" in printed and "warn" in printed
+
+
 def test_host_latency_timer_and_missing_onnx(tmp_path: Path):
     from vn_alpr.benchmark.host import concrete_shape, measure_host_latency, time_calls
     from vn_alpr.reporting import host_latency_note, write_table

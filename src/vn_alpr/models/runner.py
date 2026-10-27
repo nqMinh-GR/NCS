@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import codecs
 import json
 import os
 import shutil
@@ -71,11 +72,39 @@ def launch_upstream(
     run_env = os.environ.copy()
     if env:
         run_env.update({str(key): str(value) for key, value in env.items()})
-    completed = subprocess.run(argv, cwd=str(cwd), check=False, capture_output=True, text=True, env=run_env)
-    log_path.write_text(completed.stdout + "\n" + completed.stderr, encoding="utf-8")
+    run_env["PYTHONUNBUFFERED"] = "1"
+    print(f"--- start {log_path.parent.name} ---", flush=True)
+    process = subprocess.Popen(
+        argv,
+        cwd=str(cwd),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        env=run_env,
+        bufsize=0,
+    )
+    decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
+    assert process.stdout is not None
+    with log_path.open("w", encoding="utf-8") as handle:
+        while True:
+            chunk = process.stdout.read(4096)
+            if not chunk:
+                break
+            text = decoder.decode(chunk)
+            if not text:
+                continue
+            handle.write(text)
+            handle.flush()
+            print(text, end="", flush=True)
+        tail = decoder.decode(b"", final=True)
+        if tail:
+            handle.write(tail)
+            handle.flush()
+            print(tail, end="", flush=True)
+    returncode = process.wait()
+    print(f"--- end {log_path.parent.name} exit={returncode} ---", flush=True)
     return {
-        "status": "ok" if completed.returncode == 0 else "failed",
-        "returncode": completed.returncode,
+        "status": "ok" if returncode == 0 else "failed",
+        "returncode": returncode,
         "log": str(log_path),
         "accuracy": None,
     }
