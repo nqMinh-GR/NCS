@@ -298,6 +298,8 @@ def test_zip_rejects_secrets_and_skips_env(tmp_path: Path):
         build_results_zip(secret, tmp_path / "no.zip")
     assert find_secrets("token: abcdefgh")
     assert not find_secrets("github-token: ${{ secrets.ISSUE }}")
+    assert not find_secrets("cls_token : Float(1, 1, 384, strides=[384, 384, 1], device=cpu)")
+    assert "Float(1," in redact("cls_token : Float(1, 1, 384)")
     assert "supersecret" not in redact("api_key=supersecret")
     upstream = run / "dfine_n" / "upstream" / ".github" / "workflows"
     upstream.mkdir(parents=True)

@@ -10,14 +10,25 @@ SECRET_LINE = re.compile(
 )
 PRIVATE_KEY = re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----")
 BEARER = re.compile(r"(?i)bearer\s+[A-Za-z0-9._\-]{8,}")
+# ONNX graph dumps print names such as "cls_token : Float(1, 1, 384)".
+DTYPE_VALUE = re.compile(r"(?i)^(float|double|half|bfloat16|int|uint|long|bool|complex)\b")
+
+
+def _is_secret_assignment(snippet: str) -> bool:
+    # GitHub Actions writes "token: ${{ secrets.NAME }}". That is a placeholder, not a credential.
+    if "${{" in snippet or "secrets." in snippet.lower():
+        return False
+    value = re.split(r"\s*[:=]\s*", snippet, maxsplit=1)[-1]
+    if DTYPE_VALUE.match(value):
+        return False
+    return True
 
 
 def find_secrets(text: str) -> list[str]:
     hits = []
     for match in SECRET_LINE.finditer(text):
         snippet = match.group(0)
-        # GitHub Actions writes "token: ${{ secrets.NAME }}". That is a placeholder, not a credential.
-        if "${{" in snippet or "secrets." in snippet.lower():
+        if not _is_secret_assignment(snippet):
             continue
         hits.append(snippet)
     hits.extend(match.group(0) for match in PRIVATE_KEY.finditer(text))
@@ -28,7 +39,12 @@ def find_secrets(text: str) -> list[str]:
 def redact(text: str) -> str:
     text = PRIVATE_KEY.sub("[REDACTED_PRIVATE_KEY]", text)
     text = BEARER.sub("Bearer [REDACTED]", text)
-    text = SECRET_LINE.sub(lambda match: match.group(0).split("=")[0].split(":")[0] + "=[REDACTED]", text)
+    text = SECRET_LINE.sub(
+        lambda match: match.group(0)
+        if not _is_secret_assignment(match.group(0))
+        else match.group(0).split("=")[0].split(":")[0] + "=[REDACTED]",
+        text,
+    )
     return text
 
 
