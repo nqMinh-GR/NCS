@@ -178,6 +178,7 @@ loss_distill: 5
     assert "remap_mscoco_category=True" in dfine["train_argv"]
     assert "eval_spatial_size=null" in dfine["train_argv"]
     assert "num_classes=1" in dfine["train_argv"]
+    assert any(item.startswith("output_dir=") for item in dfine["train_argv"])
     assert dfine["train_argv"][dfine["train_argv"].index("-c") + 1].endswith(
         "upstream/configs/dfine/vn_alpr_finetune.yml"
     )
@@ -190,6 +191,8 @@ loss_distill: 5
     paddle = commands_for(models["ppocrv6_tiny"], root / "pp", 1)
     assert "PP-OCRv6_tiny_rec.yml" in " ".join(paddle["train_argv"])
     assert "TextRecognition" in " ".join(paddle["zero_shot_argv"])
+    assert any("best_accuracy" in item for item in paddle["export_argv"])
+    assert not any(item.endswith("/best") or item.endswith("/paddle/best") for item in paddle["export_argv"])
     cct = commands_for(models["cct_s_v2"], root / "cct", 1, hparams={"ocr_batch_size": 8, "num_workers": 1, "learning_rate": 0.0003})
     assert cct["decoder"] == "per_slot_classification"
     assert cct["env"]["MPLBACKEND"] == "Agg"
@@ -209,6 +212,9 @@ loss_distill: 5
     assert "train_svtr.py" in " ".join(svtr["train_argv"])
     assert "svtrv2_tiny_rctc.yml" in " ".join(svtr["train_argv"])
     assert "SimpleDataSet" in svtr["script"]
+    assert "PARSeqAugPIL" in svtr["script"]
+    assert "skip_aug" in svtr["script"]
+    assert "RecTVResize" in svtr["script"]
     assert "drive.google.com" not in svtr["script"]
     assert '["pretrained_model"] = None' in svtr["script"]
     assert svtr["manual_checkpoint"] is True
@@ -482,6 +488,10 @@ def test_character_rows_keep_split_for_ocr_sidecar(tmp_path: Path):
     train_list = Path(manifest["paddle_lists"]["train_list"]).read_text(encoding="utf-8")
     val_list = Path(manifest["paddle_lists"]["val_list"]).read_text(encoding="utf-8")
     assert "\t" in train_list and "\t" in val_list
+    train_csv = Path(manifest["ocr_csv"]["train"]).read_text(encoding="utf-8")
+    first_image = train_csv.splitlines()[1].split(",", 1)[0]
+    assert first_image.startswith("ocr_images/")
+    assert not first_image.startswith("/")
 
 
 def test_coco_links_string_ids_and_non_list_bbox(tmp_path: Path):
@@ -653,3 +663,34 @@ def test_already_trained_keeps_only_ok_logs(tmp_path: Path):
     (run / "execution_report.json").write_text(json.dumps(report), encoding="utf-8")
     found = _already_trained(run)
     assert set(found) == {"rfdetr_small"}
+
+
+def test_export_binds_the_checkpoint_the_trainer_wrote(tmp_path: Path):
+    from vn_alpr.models.runner import bind_export_checkpoint, has_export_artifact
+
+    dfine = tmp_path / "dfine_n"
+    hidden = dfine / "upstream" / "output" / "dfine_hgnetv2_n_coco"
+    hidden.mkdir(parents=True)
+    (hidden / "best.pth").write_bytes(b"ckpt")
+    argv, error = bind_export_checkpoint(
+        {"family": "dfine"},
+        dfine,
+        ["python", "tools/deployment/export_onnx.py", "-c", "cfg.yml", "-r", str(dfine / "best.pth")],
+    )
+    assert error is None
+    assert argv[argv.index("-r") + 1] == str(hidden / "best.pth")
+    assert not has_export_artifact(dfine)
+    (hidden / "best.onnx").write_bytes(b"onnx")
+    assert has_export_artifact(dfine)
+
+    paddle = tmp_path / "ppocrv6_tiny"
+    (paddle / "paddle").mkdir(parents=True)
+    (paddle / "paddle" / "best_accuracy.pdparams").write_bytes(b"pd")
+    argv, error = bind_export_checkpoint(
+        {"family": "ppocr"},
+        paddle,
+        ["python", "tools/export_model.py", "-o", f"Global.pretrained_model={paddle / 'paddle' / 'best'}"],
+    )
+    assert error is None
+    assert any(item == f"Global.checkpoints={paddle / 'paddle' / 'best_accuracy'}" for item in argv)
+    assert not any(item.startswith("Global.pretrained_model=") for item in argv)

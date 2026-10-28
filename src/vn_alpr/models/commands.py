@@ -139,6 +139,7 @@ def rtdetr_family_commands(
             ("val_dataloader.dataset.ann_file", (hparams or {}).get("val_ann")),
             ("optimizer.lr", learning_rate),
             (epoch_key, epochs),
+            ("output_dir", str(run_dir)),
             ("num_classes", 1),
             ("remap_mscoco_category", True),
             ("eval_spatial_size", "null"),
@@ -245,7 +246,7 @@ def paddle_commands(model: dict[str, Any], run_dir: Path, epochs: int, hparams: 
         "-c",
         model["config"],
         "-o",
-        f"Global.pretrained_model={run_dir / 'paddle' / 'best'}",
+        f"Global.checkpoints={run_dir / 'paddle' / 'best_accuracy'}",
         f"Global.save_inference_dir={run_dir / 'inference'}",
     ]
     python = interpreter(hparams, "paddle")
@@ -337,12 +338,28 @@ def main() -> int:
     if not train_list or not val_list:
         raise SystemExit("OCR label lists are missing")
     cfg = yaml.safe_load(source.read_text(encoding="utf-8"))
+    skip_aug = {"PARSeqAugPIL", "PARSeqAug"}
     for split, list_key in (("Train", "train_list"), ("Eval", "val_list")):
         dataset = cfg[split]["dataset"]
         dataset["name"] = "SimpleDataSet"
         dataset["data_dir"] = spec["data_dir"]
         dataset["label_file_list"] = [spec[list_key]]
         dataset.pop("data_dir_list", None)
+        cleaned = []
+        for item in dataset.get("transforms") or []:
+            name = next(iter(item)) if isinstance(item, dict) and item else ""
+            if name in skip_aug:
+                continue
+            cleaned.append(item)
+        names = {next(iter(item)) for item in cleaned if isinstance(item, dict) and item}
+        if not any("Resize" in name for name in names):
+            insert_at = 0
+            for index, item in enumerate(cleaned):
+                name = next(iter(item)) if isinstance(item, dict) and item else ""
+                if "Decode" in name:
+                    insert_at = index + 1
+            cleaned.insert(insert_at, {"RecTVResize": {"image_shape": [32, 128], "padding": True}})
+        dataset["transforms"] = cleaned
         cfg[split].pop("sampler", None)
         loader = cfg[split]["loader"]
         loader["batch_size_per_card"] = int(spec["batch"])

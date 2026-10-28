@@ -366,7 +366,7 @@ if data_report.get("status") != "prepared" or not data_report.get("ocr"):
 ## 7. Fine-tune và ghi leaderboard
 
 Detector COCO được fine-tune trên split vừa khóa. OCR train trên cùng chữ biển: PP-OCRv6, CCT, và SVTRv2 từ đầu bằng code Apache-2.0. Weight SVTR trên Drive không được tải.
-Model nào đã có `train.log` và trạng thái `ok` trong lần chạy trước thì không train lại. Model còn lại phải train. Ô này dừng nếu còn model không `ok`. Không có số accuracy bịa.
+Model nào đã có `train.log`, trạng thái `ok`, và file ONNX (hoặc inference Paddle) thì không train lại. Model train rồi nhưng chưa export thì chỉ export lại. Model còn lại phải train. Ô này dừng nếu còn model không `ok`. Không có số accuracy bịa.
 """),
         code("""
 from vn_alpr.pipeline import run_profile

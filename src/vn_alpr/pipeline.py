@@ -96,14 +96,25 @@ def run_profile(
                 print(f"--- {model_id} not ready: {ready_reason} ---", flush=True)
                 rows.append(_row(model_id, "dependency_missing", ready_reason, hardware, hparams, kind))
                 continue
-            if model_id in already_trained:
+            from vn_alpr.models.runner import attempt, has_export_artifact
+
+            if model_id in already_trained and has_export_artifact(run_dir / model_id):
                 print(f"--- {model_id} already trained ---", flush=True)
                 rows.append(_row(model_id, "ok", f"already trained: {already_trained[model_id]}", hardware, hparams, kind))
                 continue
-            from vn_alpr.models.runner import attempt
-
-            print(f"--- train {model_id} epochs={epochs} ---", flush=True)
-            launched = attempt(model, run_dir, epochs, cfg["seed"], cfg["profile"], hparams)
+            if model_id in already_trained:
+                print(f"--- {model_id} already trained; export again ---", flush=True)
+                launched = attempt(
+                    model,
+                    run_dir,
+                    epochs,
+                    cfg["seed"],
+                    cfg["profile"],
+                    {**hparams, "skip_train": True},
+                )
+            else:
+                print(f"--- train {model_id} epochs={epochs} ---", flush=True)
+                launched = attempt(model, run_dir, epochs, cfg["seed"], cfg["profile"], hparams)
             print(f"--- {model_id} status={launched['status']} ---", flush=True)
             rows.append(_row(model_id, launched["status"], launched.get("reason") or launched.get("log"), hardware, hparams, kind))
 

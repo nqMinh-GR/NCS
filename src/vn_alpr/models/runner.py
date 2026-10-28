@@ -110,6 +110,67 @@ def launch_upstream(
     }
 
 
+def _latest(root: Path, pattern: str) -> Path | None:
+    if not root.exists():
+        return None
+    found = [path for path in root.rglob(pattern) if path.is_file()]
+    if not found:
+        return None
+    return sorted(found, key=lambda path: path.stat().st_mtime)[-1]
+
+
+def has_export_artifact(work: Path) -> bool:
+    if any(path.is_file() for path in work.rglob("*.onnx")):
+        return True
+    infer = work / "inference"
+    return infer.is_dir() and any(path.is_file() for path in infer.rglob("*"))
+
+
+def _replace_flag(argv: list[str], flag: str, value: str) -> list[str]:
+    argv = list(argv)
+    if flag in argv:
+        argv[argv.index(flag) + 1] = value
+        return argv
+    prefix = flag if flag.endswith("=") else f"{flag}="
+    for index, item in enumerate(argv):
+        if item.startswith(prefix):
+            argv[index] = f"{prefix}{value}"
+            return argv
+    if flag.startswith("Global."):
+        argv.append(f"{flag}={value}")
+        return argv
+    argv.extend([flag, value])
+    return argv
+
+
+def bind_export_checkpoint(model: dict[str, Any], work: Path, export_argv: list[str]) -> tuple[list[str], str | None]:
+    """Point export at the file the trainer wrote, not a guessed name."""
+    family = model.get("family")
+    argv = list(export_argv)
+    if family in {"rtdetrv4", "dfine", "deim"}:
+        found = _latest(work, "best.pth") or _latest(work, "last.pth")
+        if found is None:
+            return [], "no detector checkpoint was written"
+        return _replace_flag(argv, "-r", str(found)), None
+    if family == "ppocr":
+        found = _latest(work / "paddle", "best_accuracy.pdparams") or _latest(work / "paddle", "*.pdparams")
+        if found is None:
+            return [], "no Paddle checkpoint was written"
+        argv = [item for item in argv if not item.startswith("Global.pretrained_model=")]
+        return _replace_flag(argv, "Global.checkpoints", str(found.with_suffix(""))), None
+    if family == "fast_plate_ocr":
+        found = _latest(work / "cct", "best.keras")
+        if found is None:
+            return [], "best.keras was not written"
+        return _replace_flag(argv, "--model", str(found)), None
+    if family == "openocr_svtrv2":
+        found = _latest(work / "svtr", "*.pth")
+        if found is None:
+            return [], "no SVTR checkpoint was written"
+        return _replace_flag(argv, "Global.checkpoints", str(found)), None
+    return argv, None
+
+
 def _fetch_checkpoint(model: dict[str, Any], dest: Path) -> dict[str, Any] | None:
     if dest.exists() and dest.stat().st_size > 0:
         return None
@@ -224,26 +285,20 @@ def attempt(
         index = argv.index("--weights-path")
         del argv[index : index + 2]
     cwd = work / "upstream" if model["family"] in clone_families else work
-    launched = launch_upstream(argv, cwd, work / "train.log", env=spec.get("env"))
+    if hparams.get("skip_train"):
+        launched = {"status": "ok", "reason": "already trained", "accuracy": None}
+    else:
+        launched = launch_upstream(argv, cwd, work / "train.log", env=spec.get("env"))
     export_argv = list(spec.get("export_argv") or [])
-    if launched["status"] == "ok" and model["family"] == "fast_plate_ocr":
-        found = sorted((work / "cct").rglob("best.keras"), key=lambda path: path.stat().st_mtime)
-        if not found or "--model" not in export_argv:
-            launched["export_status"] = "failed"
-            launched["export_reason"] = "best.keras was not written"
-            export_argv = []
-        else:
-            export_argv[export_argv.index("--model") + 1] = str(found[-1])
-    if launched["status"] == "ok" and model["family"] == "openocr_svtrv2":
-        found = sorted((work / "svtr").rglob("*.pth"), key=lambda path: path.stat().st_mtime)
-        if found:
-            export_argv.append(f"Global.checkpoints={found[-1]}")
-        else:
-            export_argv = []
-            launched["export_status"] = "failed"
-            launched["export_reason"] = "no SVTR checkpoint was written"
     if launched["status"] == "ok" and export_argv:
-        exported = launch_upstream(export_argv, cwd, work / "export.log", env=spec.get("env"))
-        launched["export_status"] = exported["status"]
-        launched["export_log"] = exported.get("log")
+        export_argv, export_error = bind_export_checkpoint(model, work, export_argv)
+        if export_error:
+            launched["export_status"] = "failed"
+            launched["export_reason"] = export_error
+        else:
+            exported = launch_upstream(export_argv, cwd, work / "export.log", env=spec.get("env"))
+            launched["export_status"] = exported["status"]
+            launched["export_log"] = exported.get("log")
+            if exported.get("reason"):
+                launched["export_reason"] = exported["reason"]
     return launched

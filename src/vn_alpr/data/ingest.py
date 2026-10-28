@@ -433,7 +433,9 @@ def _ocr_sidecars(out_dir: Path, manifest: dict[str, Any]) -> None:
             text = str(row["text_normalized"]).replace(",", "")
             list_lines.append(f"{target.name}\t{text}")
             if _fits_cct(text):
-                csv_lines.append(f"{target},{text}")
+                # fast-plate-ocr joins the CSV directory with this field as a
+                # string. An absolute path becomes canonical//canonical/...
+                csv_lines.append(f"{target.relative_to(out_dir).as_posix()},{text}")
                 cct_rows += 1
         csv_path.write_text("\n".join(csv_lines) + "\n", encoding="utf-8")
         list_path.write_text("\n".join(list_lines) + "\n", encoding="utf-8")
