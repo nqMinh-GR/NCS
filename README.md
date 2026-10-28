@@ -9,7 +9,9 @@ Bộ công cụ chọn model phát hiện và đọc biển số Việt Nam. Có
 
 [Open in Colab](https://colab.research.google.com/github/nqMinh-GR/NCS/blob/main/notebooks/VN_ALPR_Colab.ipynb)
 
-Chọn GPU runtime rồi bấm **Runtime → Run all**. Notebook tự clone `https://github.com/nqMinh-GR/NCS.git`, cài stack, tải dữ liệu, train, zip và gọi `files.download`.
+[Test INT8 trên GPU Colab](https://colab.research.google.com/github/nqMinh-GR/NCS/blob/main/notebooks/VN_ALPR_Colab_INT8.ipynb) — không train. Notebook này mount Drive, giải nén `vn_alpr_results.zip`, quantize ONNX INT8, chấm OCR val và đo latency GPU.
+
+Chọn GPU runtime rồi bấm **Runtime → Run all**. Notebook train tự clone `https://github.com/nqMinh-GR/NCS.git`, cài stack, tải dữ liệu, train, zip và gọi `files.download`.
 
 Ô tham số nằm gần đầu notebook. Sửa trước khi Run all nếu cần:
 

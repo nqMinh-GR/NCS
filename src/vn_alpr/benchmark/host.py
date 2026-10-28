@@ -246,30 +246,45 @@ def _time_one(path: Path, batch: int, cfg: dict[str, Any], hardware: dict[str, A
     return row
 
 
-def measure_host_latency(run_dir: Path, cfg: dict[str, Any], hardware: dict[str, Any]) -> list[dict[str, Any]]:
-    """Time every ONNX file under the run directory. Batch 1, then larger batches when the graph allows it."""
-    files = sorted(path for path in run_dir.rglob("*.onnx") if path.is_file() and "self_test" not in path.parts)
+def measure_onnx_files(
+    files: list[tuple[str, Path]],
+    cfg: dict[str, Any],
+    hardware: dict[str, Any],
+    *,
+    requested_precision: str = "fp32",
+) -> list[dict[str, Any]]:
+    """Time named ONNX files. Batch 1, then larger batches when the graph allows it."""
     if not files:
         return [_blank_row("none", None, hardware, "no_artifact", "no ONNX file to time", 1)]
     try:
         import onnxruntime  # noqa: F401
     except ImportError:
         return [
-            _blank_row(path.parent.name, path, hardware, "dependency_missing", "pip install onnxruntime==1.31.0", 1)
-            for path in files
+            _blank_row(model_id, path, hardware, "dependency_missing", "pip install onnxruntime==1.31.0", 1)
+            for model_id, path in files
         ]
     batches = [int(cfg["benchmark"]["batch_size_primary"])]
     for extra in cfg["benchmark"].get("extra_batches_if_fit") or []:
         if int(extra) not in batches:
             batches.append(int(extra))
     rows: list[dict[str, Any]] = []
-    for path in files:
-        model_id = path.relative_to(run_dir).parts[0] if path.parent != run_dir else path.stem
+    for model_id, path in files:
         for batch in batches:
             row = _time_one(path, batch, cfg, hardware, model_id)
+            row["requested_precision"] = requested_precision
             rows.append(row)
             if row["status"] in {"failed", "oom", "dependency_missing"}:
                 break
             if row["status"] == "skipped":
                 break
     return rows
+
+
+def measure_host_latency(run_dir: Path, cfg: dict[str, Any], hardware: dict[str, Any]) -> list[dict[str, Any]]:
+    """Time every ONNX file under the run directory. Batch 1, then larger batches when the graph allows it."""
+    files = sorted(path for path in run_dir.rglob("*.onnx") if path.is_file() and "self_test" not in path.parts)
+    named = []
+    for path in files:
+        model_id = path.relative_to(run_dir).parts[0] if path.parent != run_dir else path.stem
+        named.append((model_id, path))
+    return measure_onnx_files(named, cfg, hardware)

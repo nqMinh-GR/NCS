@@ -31,3 +31,12 @@ def test_notebooks_validate():
     assert "https://github.com/nqMinh-GR/NCS.git" in source
     assert "del sys.modules[name]" in source
     assert not (root / "01_train_export_benchmark.ipynb").exists()
+    int8 = nbformat.read(root / "VN_ALPR_Colab_INT8.ipynb", as_version=4)
+    nbformat.validate(int8)
+    int8_src = "\n".join(cell.source for cell in int8.cells)
+    assert "vn_alpr_results.zip" in int8_src
+    assert "run_int8_eval" in int8_src
+    assert "onnxruntime-gpu" in int8_src
+    assert "canonical" in int8_src
+    assert "drive.mount" in int8_src
+    assert "ROBOFLOW_API_KEY=" not in int8_src

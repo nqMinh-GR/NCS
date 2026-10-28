@@ -494,10 +494,182 @@ else:
     ]
 
 
+def colab_int8_notebook() -> list:
+    return [
+        md(f"""
+# Biển số Việt Nam — test GPU Colab INT8
+
+Notebook này **không train**. Nó lấy `vn_alpr_results.zip` trên Google Drive (cùng cấu trúc unzip: `canonical/`, `cct_s_v2/`, `rtdetrv4_s/`, …), quantize ONNX sang INT8, đo latency GPU, và chấm OCR trên `canonical/val.csv` + `canonical/ocr_images`.
+
+Zip train **không chứa ảnh detection gốc** (`raw` bị loại khi pack). AP detector không bịa từ crop OCR. Latency INT8 của detector vẫn chạy.
+
+[Open in Colab](https://colab.research.google.com/github/nqMinh-GR/NCS/blob/main/notebooks/VN_ALPR_Colab_INT8.ipynb)
+
+Repo: `{REPO}`
+"""),
+        md("""
+## 1. Lấy code
+"""),
+        code(f"""
+import os, sys, subprocess
+from pathlib import Path
+
+REPO = "{REPO}"
+ROOT = Path("/content/NCS")
+if (ROOT / ".git").exists():
+    subprocess.check_call(["git", "-C", str(ROOT), "pull", "--ff-only"])
+elif (Path.cwd() / "configs" / "project.yaml").exists():
+    ROOT = Path.cwd()
+else:
+    subprocess.check_call(["git", "clone", "--depth", "1", REPO, str(ROOT)])
+os.chdir(ROOT)
+if str(ROOT / "src") not in sys.path:
+    sys.path.insert(0, str(ROOT / "src"))
+for name in list(sys.modules):
+    if name == "vn_alpr" or name.startswith("vn_alpr."):
+        del sys.modules[name]
+try:
+    rev = subprocess.check_output(["git", "rev-parse", "--short", "HEAD"], text=True).strip()
+except Exception:
+    rev = "unknown"
+print("ROOT", ROOT.resolve(), "rev", rev)
+"""),
+        md("""
+## 2. Tham số
+
+- `RESULTS_ZIP`: để `None` thì lần lượt tìm `MyDrive/vn_alpr/vn_alpr_results.zip`, `MyDrive/NCS/vn_alpr_results.zip`, `MyDrive/vn_alpr_results.zip`.
+- `MAX_OCR_IMAGES`: `None` chấm hết val. Đặt số nguyên nếu muốn chạy ngắn.
+- `CALIB_SAMPLES`: ảnh train dùng cho PTQ INT8 (luôn lấy từ split train trong zip).
+- Latency mặc định ngắn hơn notebook train. Tăng nếu muốn đo lâu hơn.
+"""),
+        code("""
+from pathlib import Path
+
+RESULTS_ZIP = None  # Path hoặc None = tìm trên Drive
+EXTRACT_DIR = Path("/content/vn_alpr_results")
+OUT_DIR = Path("/content/vn_alpr_int8")
+SPLIT = "val"
+MAX_OCR_IMAGES = None
+CALIB_SAMPLES = 256
+
+LATENCY_WARMUP = 20
+LATENCY_ITERATIONS = 100
+LATENCY_SECONDS = 10
+LATENCY_REPEATS = 1
+"""),
+        md("""
+## 3. Cài ONNX Runtime GPU
+"""),
+        code("""
+import subprocess, sys
+
+def pip_install(packages):
+    cmd = [sys.executable, "-m", "pip", "install", "--upgrade-strategy", "only-if-needed", *packages]
+    print(" ".join(cmd))
+    completed = subprocess.run(cmd, check=False)
+    return completed.returncode == 0
+
+pip_install(["PyYAML", "Pillow", "numpy", "onnx"])
+if not pip_install(["onnxruntime-gpu"]):
+    print("onnxruntime-gpu missing, falling back to onnxruntime")
+    pip_install(["onnxruntime"])
+import onnxruntime as ort
+print("providers", ort.get_available_providers())
+"""),
+        md("""
+## 4. Mount Drive và giải nén zip
+"""),
+        code("""
+from pathlib import Path
+from google.colab import drive
+from vn_alpr.eval_results import extract_results_zip, find_results_zip
+
+drive.mount("/content/drive")
+zip_path = Path(RESULTS_ZIP) if RESULTS_ZIP else find_results_zip()
+print("zip", zip_path, "bytes", zip_path.stat().st_size)
+RESULTS_DIR = extract_results_zip(zip_path, EXTRACT_DIR)
+print("results", RESULTS_DIR)
+print("has val.csv", (RESULTS_DIR / "canonical" / "val.csv").is_file())
+print("ocr_images", sum(1 for _ in (RESULTS_DIR / "canonical" / "ocr_images").glob("*.jpg")))
+"""),
+        md("""
+## 5. Quantize INT8, chấm OCR, đo latency GPU
+"""),
+        code("""
+import json
+from vn_alpr.config import apply_train_overrides, load_project
+from vn_alpr.eval_results import discover_onnx, run_int8_eval
+from vn_alpr.hardware import write_probe
+
+overrides = {
+    "latency_warmup": LATENCY_WARMUP,
+    "latency_iterations": LATENCY_ITERATIONS,
+    "latency_seconds": LATENCY_SECONDS,
+    "latency_repeats": LATENCY_REPEATS,
+}
+cfg = apply_train_overrides(load_project(), overrides)
+cfg["quantization"]["calibration_samples"] = int(CALIB_SAMPLES)
+print("onnx models", [(m["model_id"], m["kind"]) for m in discover_onnx(RESULTS_DIR)])
+hardware = write_probe(OUT_DIR)
+report = run_int8_eval(
+    RESULTS_DIR,
+    OUT_DIR,
+    cfg,
+    hardware,
+    split=SPLIT,
+    max_images=MAX_OCR_IMAGES,
+    prefer_cuda=True,
+)
+print("status", report["status"], "ocr_images", report["ocr_images"])
+print("detection", report["detection"]["status"], report["detection"]["reason"])
+for model_id, payload in report["ocr"].items():
+    fp32 = payload.get("fp32") or {}
+    int8 = payload.get("int8") or {}
+    print(model_id, "fp32_exact", fp32.get("exact_normalized"), "cer", fp32.get("cer"),
+          "int8_exact", int8.get("exact_normalized"), "gate", payload.get("gate"))
+(OUT_DIR / "int8_eval.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
+"""),
+        md("""
+## 6. Bảng kết quả
+"""),
+        code("""
+from pathlib import Path
+
+for name in ("ocr_int8_leaderboard.csv", "fp32_latency.csv", "int8_latency.csv", "int8_quantization.csv", "recommendation.md"):
+    path = OUT_DIR / name
+    print("=" * 8, name)
+    print(path.read_text(encoding="utf-8")[:4000] if path.exists() else "missing")
+"""),
+        md("""
+## 7. Copy báo cáo sang Drive
+"""),
+        code("""
+import shutil
+from pathlib import Path
+
+dest = Path("/content/drive/MyDrive/vn_alpr/int8_eval")
+dest.mkdir(parents=True, exist_ok=True)
+copied = []
+for path in sorted(OUT_DIR.rglob("*")):
+    if not path.is_file():
+        continue
+    if path.suffix.lower() in {".onnx"} and path.stat().st_size > 80 * 1024 * 1024:
+        continue
+    target = dest / path.relative_to(OUT_DIR)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(path, target)
+    copied.append(str(target.relative_to(dest)))
+print("copied", len(copied), "files to", dest)
+print("leaderboard", dest / "ocr_int8_leaderboard.csv")
+"""),
+    ]
+
+
 def main() -> None:
     dest = ROOT / "notebooks"
     dest.mkdir(exist_ok=True)
     write(dest / "VN_ALPR_Colab.ipynb", colab_notebook())
+    write(dest / "VN_ALPR_Colab_INT8.ipynb", colab_int8_notebook())
     for stale in ("01_train_export_benchmark.ipynb", "02_jetson_quantize_benchmark.ipynb"):
         path = dest / stale
         if path.exists():
