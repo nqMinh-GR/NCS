@@ -59,6 +59,31 @@ def _clone(repo_url: str, commit: str, dest: Path) -> dict[str, Any]:
     return {"status": "ok", "path": str(dest)}
 
 
+ONNX_EXPORT_PACKAGES = ("onnxscript", "onnxsim")
+
+
+def ensure_torch_onnx_deps(python: str) -> list[str]:
+    """Current torch.onnx.export imports onnxscript before it writes a graph."""
+    missing = []
+    for name in ONNX_EXPORT_PACKAGES:
+        probe = subprocess.run([python, "-c", f"import {name}"], check=False, capture_output=True, text=True)
+        if probe.returncode != 0:
+            missing.append(name)
+    if not missing:
+        return []
+    print(f"installing ONNX export deps: {' '.join(missing)}", flush=True)
+    installed = subprocess.run(
+        [python, "-m", "pip", "install", "--upgrade-strategy", "only-if-needed", *missing],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if installed.returncode != 0:
+        tail = (installed.stderr or installed.stdout or "pip failed").strip()[-400:]
+        print(f"onnx_export_deps_failed {tail}", flush=True)
+    return missing
+
+
 def launch_upstream(
     argv: list[str],
     cwd: Path,
@@ -285,6 +310,8 @@ def attempt(
         index = argv.index("--weights-path")
         del argv[index : index + 2]
     cwd = work / "upstream" if model["family"] in clone_families else work
+    if model["family"] in {"rtdetrv4", "dfine", "deim", "rfdetr"}:
+        ensure_torch_onnx_deps(str(argv[0]) if Path(str(argv[0])).is_file() else "python")
     if hparams.get("skip_train"):
         launched = {"status": "ok", "reason": "already trained", "accuracy": None}
     else:

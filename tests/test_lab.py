@@ -694,3 +694,10 @@ def test_export_binds_the_checkpoint_the_trainer_wrote(tmp_path: Path):
     assert error is None
     assert any(item == f"Global.checkpoints={paddle / 'paddle' / 'best_accuracy'}" for item in argv)
     assert not any(item.startswith("Global.pretrained_model=") for item in argv)
+
+
+def test_torch_onnx_export_needs_onnxscript():
+    from vn_alpr.models.runner import ONNX_EXPORT_PACKAGES
+
+    assert "onnxscript" in ONNX_EXPORT_PACKAGES
+    assert "onnxsim" in ONNX_EXPORT_PACKAGES
