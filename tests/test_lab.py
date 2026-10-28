@@ -197,6 +197,9 @@ loss_distill: 5
     assert cct["decoder"] == "per_slot_classification"
     assert cct["env"]["MPLBACKEND"] == "Agg"
     assert cct["env"]["KERAS_BACKEND"] == "tensorflow"
+    assert "CUDA_VISIBLE_DEVICES" not in cct["env"]
+    assert cct["export_env"]["CUDA_VISIBLE_DEVICES"] == "-1"
+    assert cct["export_env"]["KERAS_BACKEND"] == "tensorflow"
     assert cct["train_argv"][cct["train_argv"].index("--batch-size") + 1] == "8"
     assert "--lr" in cct["train_argv"]
     assert "train_dataloader.total_batch_size=2" in " ".join(
@@ -217,6 +220,7 @@ loss_distill: 5
     assert "RecTVResize" in svtr["script"]
     assert "drive.google.com" not in svtr["script"]
     assert '["pretrained_model"] = None' in svtr["script"]
+    assert '["use_amp"] = False' in svtr["script"]
     assert svtr["manual_checkpoint"] is True
 
 

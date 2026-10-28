@@ -315,6 +315,14 @@ def cct_commands(model: dict[str, Any], run_dir: Path, epochs: int, hparams: dic
         "train_argv": train,
         "export_argv": export,
         "env": {"KERAS_BACKEND": "tensorflow", "MPLBACKEND": "Agg"},
+        # Keras venv TensorFlow cannot dlopen Colab CUDA. Grappler then crashes
+        # Cluster() during tf2onnx. Export on CPU; training still uses GPU.
+        "export_env": {
+            "KERAS_BACKEND": "tensorflow",
+            "MPLBACKEND": "Agg",
+            "CUDA_VISIBLE_DEVICES": "-1",
+            "TF_CPP_MIN_LOG_LEVEL": "2",
+        },
         "decoder": "per_slot_classification",
         "batch_size": batch,
     }
@@ -367,7 +375,8 @@ def main() -> int:
         loader["drop_last"] = False
     cfg["Global"]["epoch_num"] = int(spec["epochs"])
     cfg["Global"]["device"] = "gpu" if spec.get("use_gpu") else "cpu"
-    cfg["Global"]["use_amp"] = bool(spec.get("use_gpu"))
+    # Torch 2.11 AMP emits BFloat16. OpenOCR CTC does Tensor.numpy(), which rejects it.
+    cfg["Global"]["use_amp"] = False
     cfg["Global"]["pretrained_model"] = None
     cfg["Global"]["checkpoints"] = None
     cfg["Global"]["use_tensorboard"] = False

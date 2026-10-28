@@ -77,7 +77,14 @@ else:
 os.chdir(ROOT)
 if str(ROOT / "src") not in sys.path:
     sys.path.insert(0, str(ROOT / "src"))
-print("ROOT", ROOT.resolve())
+for name in list(sys.modules):
+    if name == "vn_alpr" or name.startswith("vn_alpr."):
+        del sys.modules[name]
+try:
+    rev = subprocess.check_output(["git", "rev-parse", "--short", "HEAD"], text=True).strip()
+except Exception:
+    rev = "unknown"
+print("ROOT", ROOT.resolve(), "rev", rev)
 """),
         md("""
 ## 2. Tham số data và train

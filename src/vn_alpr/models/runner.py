@@ -323,7 +323,12 @@ def attempt(
             launched["export_status"] = "failed"
             launched["export_reason"] = export_error
         else:
-            exported = launch_upstream(export_argv, cwd, work / "export.log", env=spec.get("env"))
+            exported = launch_upstream(
+                export_argv,
+                cwd,
+                work / "export.log",
+                env=spec.get("export_env") or spec.get("env"),
+            )
             launched["export_status"] = exported["status"]
             launched["export_log"] = exported.get("log")
             if exported.get("reason"):

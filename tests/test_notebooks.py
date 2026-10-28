@@ -29,4 +29,5 @@ def test_notebooks_validate():
     assert "LATENCY_ITERATIONS" in source
     assert "START = False" not in source
     assert "https://github.com/nqMinh-GR/NCS.git" in source
+    assert "del sys.modules[name]" in source
     assert not (root / "01_train_export_benchmark.ipynb").exists()
