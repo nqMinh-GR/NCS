@@ -497,11 +497,15 @@ else:
 def colab_int8_notebook() -> list:
     return [
         md(f"""
-# Biển số Việt Nam — test GPU Colab INT8
+# Biển số Việt Nam — benchmark GPU Colab (detect + OCR + pipeline INT8)
 
-Notebook này **không train**. Nó lấy `vn_alpr_results.zip` trên Google Drive (cùng cấu trúc unzip: `canonical/`, `cct_s_v2/`, `rtdetrv4_s/`, …), quantize ONNX sang INT8, đo latency GPU, và chấm OCR trên `canonical/val.csv` + `canonical/ocr_images`.
+Notebook này **không train**. Nó lấy `vn_alpr_results.zip` trên Drive, đúng cấu trúc unzip:
 
-Zip train **không chứa ảnh detection gốc** (`raw` bị loại khi pack). AP detector không bịa từ crop OCR. Latency INT8 của detector vẫn chạy.
+- ảnh detection: `canonical/rfdetr_data/{{train,valid,test}}` + `canonical/instances_*.json`
+- crop OCR: `canonical/ocr_images` + `canonical/val.csv`
+- ONNX: `rtdetrv4_s/`, `rfdetr_small/`, `dfine_*`, `cct_s_v2/`
+
+Việc chạy: PTQ INT8, **AP detector**, **exact/CER OCR**, **pipeline detect→crop→OCR**, latency ảnh thật và latency ONNX giả.
 
 [Open in Colab](https://colab.research.google.com/github/nqMinh-GR/NCS/blob/main/notebooks/VN_ALPR_Colab_INT8.ipynb)
 
@@ -538,9 +542,9 @@ print("ROOT", ROOT.resolve(), "rev", rev)
 ## 2. Tham số
 
 - `RESULTS_ZIP`: để `None` thì lần lượt tìm `MyDrive/vn_alpr/vn_alpr_results.zip`, `MyDrive/NCS/vn_alpr_results.zip`, `MyDrive/vn_alpr_results.zip`.
-- `MAX_OCR_IMAGES`: `None` chấm hết val. Đặt số nguyên nếu muốn chạy ngắn.
-- `CALIB_SAMPLES`: ảnh train dùng cho PTQ INT8 (luôn lấy từ split train trong zip).
-- Latency mặc định ngắn hơn notebook train. Tăng nếu muốn đo lâu hơn.
+- `MAX_IMAGES`: `None` chấm hết val (detection + OCR + pipeline). Đặt số nguyên để chạy ngắn.
+- `CALIB_SAMPLES`: ảnh train trong zip dùng cho PTQ INT8.
+- Latency ONNX giả (tensor 0) tách với latency ảnh thật đo trong bước detect/OCR/pipeline.
 """),
         code("""
 from pathlib import Path
@@ -549,7 +553,7 @@ RESULTS_ZIP = None  # Path hoặc None = tìm trên Drive
 EXTRACT_DIR = Path("/content/vn_alpr_results")
 OUT_DIR = Path("/content/vn_alpr_int8")
 SPLIT = "val"
-MAX_OCR_IMAGES = None
+MAX_IMAGES = None  # ví dụ 100 nếu muốn chạy nhanh
 CALIB_SAMPLES = 256
 
 LATENCY_WARMUP = 20
@@ -589,16 +593,32 @@ zip_path = Path(RESULTS_ZIP) if RESULTS_ZIP else find_results_zip()
 print("zip", zip_path, "bytes", zip_path.stat().st_size)
 RESULTS_DIR = extract_results_zip(zip_path, EXTRACT_DIR)
 print("results", RESULTS_DIR)
-print("has val.csv", (RESULTS_DIR / "canonical" / "val.csv").is_file())
-print("ocr_images", sum(1 for _ in (RESULTS_DIR / "canonical" / "ocr_images").glob("*.jpg")))
+canonical = RESULTS_DIR / "canonical"
+print("val.csv", (canonical / "val.csv").is_file())
+print("ocr_images", sum(1 for _ in (canonical / "ocr_images").glob("*.jpg")))
+print("det val images", sum(1 for _ in (canonical / "rfdetr_data" / "valid").glob("*.jpg")))
+print("instances_val", (canonical / "instances_val.json").is_file())
 """),
         md("""
-## 5. Quantize INT8, chấm OCR, đo latency GPU
+## 5. Pipeline đầy đủ: INT8 + detect + OCR + detect→OCR
+
+Ô này gọi `run_int8_eval`. Trong đó:
+
+1. PTQ INT8 từng ONNX, calibrate detector bằng ảnh `rfdetr_data/train`, OCR bằng crop train.
+2. **Detection**: letterbox RF-DETR / resize D-FINE & RT-DETRv4, ra box xywh pixel, tính AP50, recall, precision trên `instances_val.json`.
+3. **OCR**: crop `canonical/ocr_images` + `val.csv`, exact/CER.
+4. **Pipeline**: detect → crop box → OCR (`cct_s_v2` nếu có). `chain_exact` chỉ trên ảnh val có nhãn chữ (khớp `sample_id` với `ocr.jsonl`).
+5. Latency ảnh thật (p50 trên val) và latency tensor 0 (so sánh engine).
 """),
         code("""
 import json
 from vn_alpr.config import apply_train_overrides, load_project
-from vn_alpr.eval_results import discover_onnx, run_int8_eval
+from vn_alpr.eval_results import (
+    discover_onnx,
+    load_detection_split,
+    load_ocr_rows,
+    run_int8_eval,
+)
 from vn_alpr.hardware import write_probe
 
 overrides = {
@@ -609,7 +629,9 @@ overrides = {
 }
 cfg = apply_train_overrides(load_project(), overrides)
 cfg["quantization"]["calibration_samples"] = int(CALIB_SAMPLES)
-print("onnx models", [(m["model_id"], m["kind"]) for m in discover_onnx(RESULTS_DIR)])
+print("onnx", [(m["model_id"], m["kind"]) for m in discover_onnx(RESULTS_DIR)])
+print("ocr rows", len(load_ocr_rows(canonical, SPLIT, max_images=MAX_IMAGES)))
+print("det rows", len(load_detection_split(canonical, SPLIT, max_images=MAX_IMAGES)))
 hardware = write_probe(OUT_DIR)
 report = run_int8_eval(
     RESULTS_DIR,
@@ -617,17 +639,28 @@ report = run_int8_eval(
     cfg,
     hardware,
     split=SPLIT,
-    max_images=MAX_OCR_IMAGES,
+    max_images=MAX_IMAGES,
     prefer_cuda=True,
 )
-print("status", report["status"], "ocr_images", report["ocr_images"])
-print("detection", report["detection"]["status"], report["detection"]["reason"])
+print("status", report["status"], "det", report["detection_images"], "ocr", report["ocr_images"])
+print("--- detection AP50 ---")
+for model_id, payload in report["detection"].items():
+    fp32 = payload.get("fp32") or {}
+    int8 = payload.get("int8") or {}
+    print(model_id, "fp32_ap50", fp32.get("ap50"), "recall", fp32.get("recall_at_threshold"),
+          "int8_ap50", int8.get("ap50"), "real_p50_ms", fp32.get("real_image_p50_ms"), "gate", payload.get("gate"))
+print("--- OCR exact ---")
 for model_id, payload in report["ocr"].items():
     fp32 = payload.get("fp32") or {}
     int8 = payload.get("int8") or {}
     print(model_id, "fp32_exact", fp32.get("exact_normalized"), "cer", fp32.get("cer"),
           "int8_exact", int8.get("exact_normalized"), "gate", payload.get("gate"))
-(OUT_DIR / "int8_eval.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
+print("--- pipeline detect+OCR ---")
+for key, chain in report["pipeline"].items():
+    print(key, "chain_exact", chain.get("chain_exact"),
+          "ocr_given_det", chain.get("ocr_exact_given_detection"),
+          "gt_box_ocr", (chain.get("ocr_on_gt_box") or {}).get("exact_normalized"),
+          "e2e_p50_ms", chain.get("e2e_p50_ms"))
 """),
         md("""
 ## 6. Bảng kết quả
@@ -635,10 +668,18 @@ for model_id, payload in report["ocr"].items():
         code("""
 from pathlib import Path
 
-for name in ("ocr_int8_leaderboard.csv", "fp32_latency.csv", "int8_latency.csv", "int8_quantization.csv", "recommendation.md"):
+for name in (
+    "detector_int8_leaderboard.csv",
+    "ocr_int8_leaderboard.csv",
+    "pipeline_int8_leaderboard.csv",
+    "fp32_latency.csv",
+    "int8_latency.csv",
+    "int8_quantization.csv",
+    "recommendation.md",
+):
     path = OUT_DIR / name
     print("=" * 8, name)
-    print(path.read_text(encoding="utf-8")[:4000] if path.exists() else "missing")
+    print(path.read_text(encoding="utf-8")[:5000] if path.exists() else "missing")
 """),
         md("""
 ## 7. Copy báo cáo sang Drive

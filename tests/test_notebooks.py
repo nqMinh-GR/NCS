@@ -38,5 +38,8 @@ def test_notebooks_validate():
     assert "run_int8_eval" in int8_src
     assert "onnxruntime-gpu" in int8_src
     assert "canonical" in int8_src
+    assert "rfdetr_data" in int8_src
+    assert "chain_exact" in int8_src
+    assert "load_detection_split" in int8_src
     assert "drive.mount" in int8_src
     assert "ROBOFLOW_API_KEY=" not in int8_src
